@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	pathfs "big/internal/fs"
 	"big/internal/scan"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -21,6 +22,8 @@ type keyMap struct {
 	PageDn key.Binding
 	Home   key.Binding
 	End    key.Binding
+	Open   key.Binding
+	Reveal key.Binding
 	Quit   key.Binding
 }
 
@@ -32,19 +35,29 @@ func defaultKeyMap() keyMap {
 		PageDn: key.NewBinding(key.WithKeys("pgdown")),
 		Home:   key.NewBinding(key.WithKeys("home"), key.WithHelp("home/end", "first/last")),
 		End:    key.NewBinding(key.WithKeys("end")),
+		Open:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/e", "open/reveal")),
+		Reveal: key.NewBinding(key.WithKeys("e")),
 		Quit:   key.NewBinding(key.WithKeys("q", "esc", "ctrl+c"), key.WithHelp("q/esc", "quit")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.PageUp, k.Home, k.Quit}
+	return []key.Binding{k.Up, k.PageUp, k.Home, k.Open, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.PageUp},
-		{k.Home, k.Quit},
+		{k.Up, k.PageUp, k.Home},
+		{k.Open, k.Quit},
 	}
+}
+
+type pathAction func(string) error
+
+type pathActionFinishedMsg struct {
+	verb string
+	path string
+	err  error
 }
 
 type Model struct {
@@ -57,9 +70,14 @@ type Model struct {
 	width     int
 	height    int
 
+	status string
+
 	viewport viewport.Model
 	help     help.Model
 	keys     keyMap
+
+	openPath   pathAction
+	revealPath pathAction
 
 	headerStyle  lipgloss.Style
 	sizeStyle    lipgloss.Style
@@ -67,6 +85,7 @@ type Model struct {
 	folderStyle  lipgloss.Style
 	linkStyle    lipgloss.Style
 	selectedName lipgloss.Style
+	statusStyle  lipgloss.Style
 	footerStyle  lipgloss.Style
 }
 
@@ -97,6 +116,9 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 		help:     help.New(),
 		keys:     keys,
 
+		openPath:   pathfs.OpenPath,
+		revealPath: pathfs.RevealPath,
+
 		headerStyle: lipgloss.NewStyle().
 			Background(lipgloss.Color("170")).Padding(0, 1).
 			Foreground(lipgloss.Color("255")),
@@ -110,6 +132,8 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 			Foreground(lipgloss.Color("109")),
 		selectedName: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("170")),
+		statusStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("203")),
 		footerStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244")),
 	}
@@ -143,32 +167,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(typed, m.keys.Up):
+			m.clearStatus()
 			m.moveSelection(-1)
 			return m, nil
 		case key.Matches(typed, m.keys.Down):
+			m.clearStatus()
 			m.moveSelection(1)
 			return m, nil
 		case key.Matches(typed, m.keys.PageUp):
+			m.clearStatus()
 			step := max(1, m.viewport.Height())
 			m.moveSelection(-step)
 			return m, nil
 		case key.Matches(typed, m.keys.PageDn):
+			m.clearStatus()
 			step := max(1, m.viewport.Height())
 			m.moveSelection(step)
 			return m, nil
 		case key.Matches(typed, m.keys.Home):
+			m.clearStatus()
 			m.selected = 0
 			m.keepSelectionVisible()
 			m.refreshViewportContent()
 			return m, nil
 		case key.Matches(typed, m.keys.End):
+			m.clearStatus()
 			m.selected = len(m.entries) - 1
 			m.keepSelectionVisible()
 			m.refreshViewportContent()
 			return m, nil
-		case typed.String() == "enter":
+		case key.Matches(typed, m.keys.Open):
+			return m, m.runPathAction("Open", m.openPath)
+		case key.Matches(typed, m.keys.Reveal):
+			return m, m.runPathAction("Reveal", m.revealPath)
+		}
+	case pathActionFinishedMsg:
+		if typed.err == nil {
+			m.clearStatus()
 			return m, nil
 		}
+		m.status = fmt.Sprintf("%s failed: %v", typed.verb, typed.err)
+		m.resize()
+		return m, nil
 	}
 
 	var cmd tea.Cmd
@@ -187,7 +227,12 @@ func (m Model) View() tea.View {
 		content = m.viewport.View()
 	}
 
-	body := strings.Join([]string{header, "", content, "", footer}, "\n")
+	parts := []string{header, "", content, ""}
+	if m.status != "" {
+		parts = append(parts, m.statusStyle.Render(m.status))
+	}
+	parts = append(parts, footer)
+	body := strings.Join(parts, "\n")
 	view := tea.NewView(body)
 	view.AltScreen = true
 	return view
@@ -196,7 +241,11 @@ func (m Model) View() tea.View {
 func (m *Model) resize() {
 	headerHeight := 1
 	footerHeight := 1
-	listHeight := m.height - headerHeight - footerHeight - 2
+	statusHeight := 0
+	if m.status != "" {
+		statusHeight = 1
+	}
+	listHeight := m.height - headerHeight - footerHeight - statusHeight - 2
 	if listHeight < 1 {
 		listHeight = 1
 	}
@@ -204,6 +253,35 @@ func (m *Model) resize() {
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(listHeight)
 	m.help.SetWidth(m.width)
+}
+
+func (m *Model) clearStatus() {
+	if m.status == "" {
+		return
+	}
+	m.status = ""
+	m.resize()
+}
+
+func (m Model) runPathAction(verb string, action pathAction) tea.Cmd {
+	path := m.selectedEntryPath()
+	return func() tea.Msg {
+		err := action(path)
+		return pathActionFinishedMsg{
+			verb: verb,
+			path: path,
+			err:  err,
+		}
+	}
+}
+
+func (m Model) selectedEntryPath() string {
+	path := m.entries[m.selected].Path
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return absolute
 }
 
 func (m *Model) moveSelection(delta int) {
