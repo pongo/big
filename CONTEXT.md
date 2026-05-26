@@ -17,7 +17,7 @@ The size used to rank a **Root Entry**. For a file it is the file size; for a fo
 _Avoid_: weight, disk usage
 
 **Size Ranking**:
-The ordering of **Root Entries** from largest to smallest **Entry Size**. Root entries without an **Entry Size** appear after all sized entries and are ordered by name.
+The ordering of **Root Entries**: sized entries of at least 1 MiB appear first from largest to smallest **Entry Size**, with entries of the same **Entry Size** ordered by name; sized entries below 1 MiB appear next ordered by name; and entries without an **Entry Size** appear last ordered by name.
 _Avoid_: sorting, order
 
 **Trashed Root Entry**:
@@ -26,6 +26,6 @@ _Avoid_: deleted item, removed node
 
 ## Example Dialogue
 
-Developer: "If the scan root contains `src`, `bin`, and `README.md`, how many rows should Big show?"
+Developer: "If the scan root contains `src`, `bin`, `a.txt`, and `README.md`, how many rows should Big show?"
 
-Domain expert: "Three root entries. `src` and `bin` include their nested contents in their entry size, but nested files are not listed as separate rows. Links are still root entries, but they appear after entries with sizes."
+Domain expert: "Four root entries. `src` and `bin` include their nested contents in their entry size, but nested files are not listed as separate rows. If `a.txt` and `README.md` are both below 1 MiB, they appear after larger entries and are ordered by name. Links are still root entries, but they appear after entries with sizes."

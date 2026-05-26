@@ -10,17 +10,85 @@ import (
 	"time"
 )
 
-func TestSortRootEntriesBySizeThenName(t *testing.T) {
+func TestSortRootEntriesMixedThresholdBehavior(t *testing.T) {
 	entries := []RootEntry{
-		{Name: "b", HasSize: true, Size: 10},
-		{Name: "a", HasSize: true, Size: 10},
-		{Name: "c", HasSize: true, Size: 20},
+		{Name: "small-z", HasSize: true, Size: 100},
+		{Name: "large-c", HasSize: true, Size: 3 * 1024 * 1024},
+		{Name: "small-a", HasSize: true, Size: 900 * 1024},
+		{Name: "exact-1m", HasSize: true, Size: 1024 * 1024},
+		{Name: "large-b", HasSize: true, Size: 5 * 1024 * 1024},
+	}
+
+	SortRootEntries(entries)
+
+	got := []string{entries[0].Name, entries[1].Name, entries[2].Name, entries[3].Name, entries[4].Name}
+	want := []string{"large-b", "large-c", "exact-1m", "small-a", "small-z"}
+	if !equalStrings(got, want) {
+		t.Fatalf("unexpected order: got %v want %v", got, want)
+	}
+}
+
+func TestSortRootEntriesBelowThresholdOrderedByName(t *testing.T) {
+	entries := []RootEntry{
+		{Name: "c", HasSize: true, Size: 900 * 1024},
+		{Name: "a", HasSize: true, Size: 1023 * 1024},
+		{Name: "b", HasSize: true, Size: 1},
 	}
 
 	SortRootEntries(entries)
 
 	got := []string{entries[0].Name, entries[1].Name, entries[2].Name}
-	want := []string{"c", "a", "b"}
+	want := []string{"a", "b", "c"}
+	if !equalStrings(got, want) {
+		t.Fatalf("unexpected order: got %v want %v", got, want)
+	}
+}
+
+func TestSortRootEntriesSameSizeLargeOrderedByName(t *testing.T) {
+	entries := []RootEntry{
+		{Name: "z", HasSize: true, Size: 2 * 1024 * 1024},
+		{Name: "a", HasSize: true, Size: 2 * 1024 * 1024},
+		{Name: "m", HasSize: true, Size: 2 * 1024 * 1024},
+	}
+
+	SortRootEntries(entries)
+
+	got := []string{entries[0].Name, entries[1].Name, entries[2].Name}
+	want := []string{"a", "m", "z"}
+	if !equalStrings(got, want) {
+		t.Fatalf("unexpected order: got %v want %v", got, want)
+	}
+}
+
+func TestSortRootEntriesNoSizeRemainLastAndOrderedByName(t *testing.T) {
+	entries := []RootEntry{
+		{Name: "link-z", HasSize: false},
+		{Name: "big", HasSize: true, Size: 4 * 1024 * 1024},
+		{Name: "link-a", HasSize: false},
+		{Name: "small", HasSize: true, Size: 1},
+	}
+
+	SortRootEntries(entries)
+
+	got := []string{entries[0].Name, entries[1].Name, entries[2].Name, entries[3].Name}
+	want := []string{"big", "small", "link-a", "link-z"}
+	if !equalStrings(got, want) {
+		t.Fatalf("unexpected order: got %v want %v", got, want)
+	}
+}
+
+func TestSortRootEntriesFilesAndFoldersFollowSameThresholdRule(t *testing.T) {
+	entries := []RootEntry{
+		{Name: "folder-a", Kind: EntryFolder, HasSize: true, Size: 900 * 1024},
+		{Name: "file-z", Kind: EntryFile, HasSize: true, Size: 500 * 1024},
+		{Name: "folder-z", Kind: EntryFolder, HasSize: true, Size: 3 * 1024 * 1024},
+		{Name: "file-a", Kind: EntryFile, HasSize: true, Size: 2 * 1024 * 1024},
+	}
+
+	SortRootEntries(entries)
+
+	got := []string{entries[0].Name, entries[1].Name, entries[2].Name, entries[3].Name}
+	want := []string{"folder-z", "file-a", "file-z", "folder-a"}
 	if !equalStrings(got, want) {
 		t.Fatalf("unexpected order: got %v want %v", got, want)
 	}

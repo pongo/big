@@ -135,16 +135,33 @@ func (s *Scanner) dirSize(path string) int64 {
 }
 
 func SortRootEntries(entries []RootEntry) {
+	const oneMiB int64 = 1024 * 1024
+
+	rankGroup := func(entry RootEntry) int {
+		switch {
+		case !entry.HasSize:
+			return 2
+		case entry.Size >= oneMiB:
+			return 0
+		default:
+			return 1
+		}
+	}
+
 	sort.SliceStable(entries, func(i, j int) bool {
 		left := entries[i]
 		right := entries[j]
 
-		if left.HasSize != right.HasSize {
-			return left.HasSize
+		leftGroup := rankGroup(left)
+		rightGroup := rankGroup(right)
+		if leftGroup != rightGroup {
+			return leftGroup < rightGroup
 		}
-		if left.HasSize && right.HasSize && left.Size != right.Size {
+
+		if leftGroup == 0 && left.Size != right.Size {
 			return left.Size > right.Size
 		}
+
 		return left.Name < right.Name
 	})
 }
