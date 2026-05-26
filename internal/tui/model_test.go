@@ -61,7 +61,7 @@ func TestEnterOpensSelectedRootEntry(t *testing.T) {
 		{Name: "other.txt", Path: filepath.Join("root", "other.txt"), Kind: scan.EntryFile, HasSize: true},
 		{Name: "Утиный Тест-2.ogg", Path: path, Kind: scan.EntryFile, HasSize: true},
 	})
-	model.selected = 1
+	model.entryViews.selected = 1
 
 	var opened string
 	model.openPath = func(path string) error {
@@ -168,7 +168,7 @@ func TestDeleteTrashesSelectedRootEntry(t *testing.T) {
 		{Name: "keep.txt", Path: filepath.Join("root", "keep.txt"), Kind: scan.EntryFile, HasSize: true},
 		{Name: "delete-me.txt", Path: path, Kind: scan.EntryFile, HasSize: true},
 	})
-	model.selected = 1
+	model.entryViews.selected = 1
 
 	var trashed string
 	model.trashPath = func(path string) error {
@@ -199,7 +199,7 @@ func TestDeleteSuccessMarksRowTrashedAndMovesSelection(t *testing.T) {
 		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
 		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
 	})
-	model.selected = 0
+	model.entryViews.selected = 0
 
 	path := model.selectedEntryPath()
 	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path})
@@ -208,8 +208,8 @@ func TestDeleteSuccessMarksRowTrashedAndMovesSelection(t *testing.T) {
 	if !got.isTrashed(path) {
 		t.Fatalf("path %q is not marked as trashed", path)
 	}
-	if got.selected != 1 {
-		t.Fatalf("selected index = %d, want %d", got.selected, 1)
+	if got.entryViews.selectedIndex() != 1 {
+		t.Fatalf("selected index = %d, want %d", got.entryViews.selectedIndex(), 1)
 	}
 }
 
@@ -218,7 +218,7 @@ func TestDeleteSuccessOnLastRowKeepsSelection(t *testing.T) {
 		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
 		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
 	})
-	model.selected = 1
+	model.entryViews.selected = 1
 
 	path := model.selectedEntryPath()
 	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path})
@@ -227,8 +227,8 @@ func TestDeleteSuccessOnLastRowKeepsSelection(t *testing.T) {
 	if !got.isTrashed(path) {
 		t.Fatalf("path %q is not marked as trashed", path)
 	}
-	if got.selected != 1 {
-		t.Fatalf("selected index = %d, want %d", got.selected, 1)
+	if got.entryViews.selectedIndex() != 1 {
+		t.Fatalf("selected index = %d, want %d", got.entryViews.selectedIndex(), 1)
 	}
 }
 
@@ -237,7 +237,7 @@ func TestDeleteFailureKeepsSelectionAndUntrashed(t *testing.T) {
 		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
 		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
 	})
-	model.selected = 0
+	model.entryViews.selected = 0
 	path := model.selectedEntryPath()
 
 	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path, err: errors.New("trash unavailable")})
@@ -246,8 +246,8 @@ func TestDeleteFailureKeepsSelectionAndUntrashed(t *testing.T) {
 	if got.isTrashed(path) {
 		t.Fatalf("path %q should not be marked as trashed", path)
 	}
-	if got.selected != 0 {
-		t.Fatalf("selected index = %d, want %d", got.selected, 0)
+	if got.entryViews.selectedIndex() != 0 {
+		t.Fatalf("selected index = %d, want %d", got.entryViews.selectedIndex(), 0)
 	}
 	if got.status != "Delete failed: trash unavailable" {
 		t.Fatalf("status = %q, want %q", got.status, "Delete failed: trash unavailable")
@@ -305,7 +305,7 @@ func TestRapidDeleteOnSameRowDoesNotInvokeActionTwice(t *testing.T) {
 		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
 		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
 	})
-	model.selected = 0
+	model.entryViews.selected = 0
 	calls := 0
 	model.trashPath = func(path string) error {
 		calls++
@@ -355,16 +355,18 @@ func TestOpenUsesSelectedEntryFromActiveEntryView(t *testing.T) {
 		{Name: "first.txt", Path: firstPath, Kind: scan.EntryFile, HasSize: true},
 		{Name: "second.txt", Path: secondPath, Kind: scan.EntryFile, HasSize: true},
 	})
-	model.entryViews = []entryView{
-		{
-			name: "Filtered",
-			entries: []scan.RootEntry{
-				{Name: "second.txt", Path: secondPath, Kind: scan.EntryFile, HasSize: true},
+	model.entryViews = entryViewSet{
+		views: []entryView{
+			{
+				name: "Filtered",
+				entries: []scan.RootEntry{
+					{Name: "second.txt", Path: secondPath, Kind: scan.EntryFile, HasSize: true},
+				},
 			},
 		},
 	}
-	model.selectedEntryView = 0
-	model.selected = 0
+	model.entryViews.active = 0
+	model.entryViews.selected = 0
 
 	var opened string
 	model.openPath = func(path string) error {
@@ -473,17 +475,17 @@ func TestLeftRightSwitchEntryViewsWithClampAndReset(t *testing.T) {
 		{Name: "odd.bin", Path: "odd.bin", Kind: scan.EntryFile, HasSize: true, Size: 170},
 	})
 	model.status = "Open failed: test"
-	model.selectedEntryView = 1
-	model.selected = 2
+	model.entryViews.active = 1
+	model.entryViews.selected = 2
 	model.viewport.SetYOffset(3)
 
 	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
 	got := updated.(Model)
-	if got.selectedEntryView != 0 {
-		t.Fatalf("selected entry view = %d, want %d", got.selectedEntryView, 0)
+	if got.entryViews.active != 0 {
+		t.Fatalf("selected entry view = %d, want %d", got.entryViews.active, 0)
 	}
-	if got.selected != 0 {
-		t.Fatalf("selected row = %d, want %d", got.selected, 0)
+	if got.entryViews.selectedIndex() != 0 {
+		t.Fatalf("selected row = %d, want %d", got.entryViews.selectedIndex(), 0)
 	}
 	if got.viewport.YOffset() != 0 {
 		t.Fatalf("viewport y offset = %d, want %d", got.viewport.YOffset(), 0)
@@ -494,14 +496,14 @@ func TestLeftRightSwitchEntryViewsWithClampAndReset(t *testing.T) {
 
 	updated, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
 	got = updated.(Model)
-	if got.selectedEntryView != 0 {
-		t.Fatalf("selected entry view after clamp-left = %d, want %d", got.selectedEntryView, 0)
+	if got.entryViews.active != 0 {
+		t.Fatalf("selected entry view after clamp-left = %d, want %d", got.entryViews.active, 0)
 	}
 
 	updated, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
 	got = updated.(Model)
-	if got.selectedEntryView != 1 {
-		t.Fatalf("selected entry view after right = %d, want %d", got.selectedEntryView, 1)
+	if got.entryViews.active != 1 {
+		t.Fatalf("selected entry view after right = %d, want %d", got.entryViews.active, 1)
 	}
 }
 
@@ -521,8 +523,8 @@ func TestHeaderRendersActiveEntryViewNameRightAligned(t *testing.T) {
 		t.Fatalf("header %q does not end with %q", header, "Other")
 	}
 
-	model.entryViews = append([]entryView{{name: "Folders", entries: nil}}, model.entryViews...)
-	model.selectedEntryView = 1
+	model.entryViews.views = append([]entryView{{name: "Folders", entries: nil}}, model.entryViews.views...)
+	model.entryViews.active = 1
 	header = model.renderHeaderContent()
 	if !strings.HasPrefix(header, "root") {
 		t.Fatalf("header %q does not start with %q", header, "root")
@@ -546,8 +548,8 @@ func TestDeleteInNonFirstEntryViewMarksTrashedInThatView(t *testing.T) {
 		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 190},
 		{Name: "c.txt", Path: "c.txt", Kind: scan.EntryFile, HasSize: true, Size: 180},
 	})
-	model.selectedEntryView = 1
-	model.selected = 0
+	model.entryViews.active = 1
+	model.entryViews.selected = 0
 
 	path := model.selectedEntryPath()
 	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path})
@@ -556,8 +558,8 @@ func TestDeleteInNonFirstEntryViewMarksTrashedInThatView(t *testing.T) {
 	if !got.isTrashed(path) {
 		t.Fatalf("path %q is not marked as trashed", path)
 	}
-	if got.entryViews[1].entries[0].Path != "a.txt" {
-		t.Fatalf("trashed entry disappeared from its view, first path = %q", got.entryViews[1].entries[0].Path)
+	if got.entryViews.views[1].entries[0].Path != "a.txt" {
+		t.Fatalf("trashed entry disappeared from its view, first path = %q", got.entryViews.views[1].entries[0].Path)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	pathfs "big/internal/fs"
@@ -69,20 +68,13 @@ type pathActionFinishedMsg struct {
 	err  error
 }
 
-type entryView struct {
-	name    string
-	entries []scan.RootEntry
-}
-
 type Model struct {
 	rootPath string
 	header   string
 
-	entryViews        []entryView
-	selectedEntryView int
+	entryViews entryViewSet
 
 	sizeWidth int
-	selected  int
 	width     int
 	height    int
 
@@ -127,10 +119,9 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 	model := Model{
 		rootPath:   rootPath,
 		header:     scanRootHeader(rootPath),
-		entryViews: buildEntryViews(entries),
+		entryViews: newEntryViewSet(entries),
 
 		sizeWidth: sizeWidth,
-		selected:  0,
 
 		viewport: vp,
 		help:     help.New(),
@@ -219,13 +210,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(typed, m.keys.Home):
 			m.clearStatus()
-			m.selected = 0
+			m.entryViews.selectFirst()
 			m.keepSelectionVisible()
 			m.refreshViewportContent()
 			return m, nil
 		case key.Matches(typed, m.keys.End):
 			m.clearStatus()
-			m.selected = len(m.activeEntries()) - 1
+			m.entryViews.selectLast()
 			m.keepSelectionVisible()
 			m.refreshViewportContent()
 			return m, nil
@@ -246,9 +237,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if typed.err == nil {
 			if typed.verb == "Delete" {
 				m.trashedPaths[typed.path] = struct{}{}
-				if m.selected+1 < len(m.activeEntries()) {
-					m.selected++
-				}
+				m.entryViews.advanceSelection()
 				m.keepSelectionVisible()
 				m.refreshViewportContent()
 			}
@@ -333,31 +322,26 @@ func (m Model) runPathAction(verb string, action pathAction) tea.Cmd {
 }
 
 func (m Model) selectedEntryPath() string {
-	return m.entryPath(m.activeEntries()[m.selected])
+	entry, _ := m.entryViews.selectedEntry()
+	return m.entryPath(entry)
 }
 
 func (m *Model) moveSelection(delta int) {
-	next := m.selected + delta
-	if next < 0 {
-		next = 0
-	}
-	if next >= len(m.activeEntries()) {
-		next = len(m.activeEntries()) - 1
-	}
-	m.selected = next
+	m.entryViews.moveSelection(delta)
 	m.keepSelectionVisible()
 	m.refreshViewportContent()
 }
 
 func (m *Model) keepSelectionVisible() {
-	if m.selected < m.viewport.YOffset() {
-		m.viewport.SetYOffset(m.selected)
+	selected := m.entryViews.selectedIndex()
+	if selected < m.viewport.YOffset() {
+		m.viewport.SetYOffset(selected)
 		return
 	}
 
 	bottom := m.viewport.YOffset() + m.viewport.Height() - 1
-	if m.selected > bottom {
-		m.viewport.SetYOffset(m.selected - m.viewport.Height() + 1)
+	if selected > bottom {
+		m.viewport.SetYOffset(selected - m.viewport.Height() + 1)
 	}
 }
 
@@ -372,12 +356,13 @@ func (m *Model) refreshViewportContent() {
 	for idx, entry := range entries {
 		entryPath := m.entryPath(entry)
 		isTrashed := m.isTrashed(entryPath)
+		isSelected := idx == m.entryViews.selectedIndex()
 
 		sizeStyle := m.sizeStyle
 		if isTrashed {
 			sizeStyle = m.trashedStyle.Inherit(sizeStyle)
 		}
-		if idx == m.selected {
+		if isSelected {
 			sizeStyle = m.selectedName.Inherit(sizeStyle)
 		}
 
@@ -400,7 +385,7 @@ func (m *Model) refreshViewportContent() {
 		if isTrashed {
 			nameStyle = m.trashedStyle.Inherit(nameStyle)
 		}
-		if idx == m.selected {
+		if isSelected {
 			nameStyle = m.selectedName.Inherit(nameStyle)
 		}
 		row := fmt.Sprintf("%s  %s", sizeStyle.Render(sizeCell), nameStyle.Render(name))
@@ -411,22 +396,10 @@ func (m *Model) refreshViewportContent() {
 }
 
 func (m *Model) switchEntryView(delta int) {
-	if len(m.entryViews) == 0 {
+	if !m.entryViews.switchView(delta) {
 		return
 	}
-	next := m.selectedEntryView + delta
-	if next < 0 {
-		next = 0
-	}
-	if next >= len(m.entryViews) {
-		next = len(m.entryViews) - 1
-	}
-	if next == m.selectedEntryView {
-		return
-	}
-	m.selectedEntryView = next
 	m.clearStatus()
-	m.selected = 0
 	m.viewport.SetYOffset(0)
 	m.refreshViewportContent()
 }
@@ -441,91 +414,11 @@ func (m Model) renderHeaderContent() string {
 }
 
 func (m Model) activeEntryViewName() string {
-	if len(m.entryViews) == 0 {
-		return ""
-	}
-	return m.entryViews[m.selectedEntryView].name
+	return m.entryViews.activeName()
 }
 
 func (m Model) activeEntries() []scan.RootEntry {
-	if len(m.entryViews) == 0 {
-		return nil
-	}
-	return m.entryViews[m.selectedEntryView].entries
-}
-
-func buildEntryViews(entries []scan.RootEntry) []entryView {
-	if len(entries) == 0 {
-		return nil
-	}
-
-	extensionCounts := make(map[string]int)
-	for _, entry := range entries {
-		if entry.Kind != scan.EntryFile {
-			continue
-		}
-		ext := normalizedExtension(entry.Name)
-		if ext == "" {
-			continue
-		}
-		extensionCounts[ext]++
-	}
-
-	folders := make([]scan.RootEntry, 0)
-	other := make([]scan.RootEntry, 0)
-	extensionEntries := make(map[string][]scan.RootEntry)
-	for _, entry := range entries {
-		switch entry.Kind {
-		case scan.EntryFolder:
-			folders = append(folders, entry)
-		case scan.EntryFile:
-			ext := normalizedExtension(entry.Name)
-			if ext == "" || extensionCounts[ext] < 5 {
-				other = append(other, entry)
-				continue
-			}
-			extensionEntries[ext] = append(extensionEntries[ext], entry)
-		default:
-			other = append(other, entry)
-		}
-	}
-
-	views := make([]entryView, 0, len(extensionEntries)+2)
-	if len(folders) > 0 {
-		views = append(views, entryView{name: "Folders", entries: folders})
-	}
-
-	extensionNames := make([]string, 0, len(extensionEntries))
-	for name := range extensionEntries {
-		extensionNames = append(extensionNames, name)
-	}
-	sort.Slice(extensionNames, func(i, j int) bool {
-		left := extensionNames[i]
-		right := extensionNames[j]
-		leftCount := extensionCounts[left]
-		rightCount := extensionCounts[right]
-		if leftCount != rightCount {
-			return leftCount > rightCount
-		}
-		return left < right
-	})
-	for _, name := range extensionNames {
-		views = append(views, entryView{name: name, entries: extensionEntries[name]})
-	}
-
-	if len(other) > 0 {
-		views = append(views, entryView{name: "Other", entries: other})
-	}
-
-	return views
-}
-
-func normalizedExtension(name string) string {
-	ext := filepath.Ext(name)
-	if ext == "" {
-		return ""
-	}
-	return strings.ToLower(ext)
+	return m.entryViews.activeEntries()
 }
 
 func showsSize(entry scan.RootEntry) bool {
