@@ -156,3 +156,135 @@ func TestHelpIncludesOpenRevealBinding(t *testing.T) {
 		t.Fatalf("open help = %#v, want enter/e open/reveal", help)
 	}
 }
+
+func TestDeleteTrashesSelectedRootEntry(t *testing.T) {
+	path := filepath.Join("root", "delete-me.txt")
+	wantPath, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatalf("filepath.Abs returned error: %v", err)
+	}
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "keep.txt", Path: filepath.Join("root", "keep.txt"), Kind: scan.EntryFile, HasSize: true},
+		{Name: "delete-me.txt", Path: path, Kind: scan.EntryFile, HasSize: true},
+	})
+	model.selected = 1
+
+	var trashed string
+	model.trashPath = func(path string) error {
+		trashed = path
+		return nil
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	if cmd == nil {
+		t.Fatal("Update returned nil command")
+	}
+	gotMsg := cmd()
+	msg, ok := gotMsg.(pathActionFinishedMsg)
+	if !ok {
+		t.Fatalf("command returned %T, want pathActionFinishedMsg", gotMsg)
+	}
+
+	if trashed != wantPath {
+		t.Fatalf("trashed path = %q, want %q", trashed, wantPath)
+	}
+	if msg.verb != "Delete" || msg.path != wantPath || msg.err != nil {
+		t.Fatalf("path action message = %#v, want successful Delete for %q", msg, wantPath)
+	}
+}
+
+func TestDeleteSuccessMarksRowTrashedAndMovesSelection(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	model.selected = 0
+
+	path := model.selectedEntryPath()
+	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path})
+	got := updated.(Model)
+
+	if !got.isTrashed(path) {
+		t.Fatalf("path %q is not marked as trashed", path)
+	}
+	if got.selected != 1 {
+		t.Fatalf("selected index = %d, want %d", got.selected, 1)
+	}
+}
+
+func TestDeleteSuccessOnLastRowKeepsSelection(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	model.selected = 1
+
+	path := model.selectedEntryPath()
+	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path})
+	got := updated.(Model)
+
+	if !got.isTrashed(path) {
+		t.Fatalf("path %q is not marked as trashed", path)
+	}
+	if got.selected != 1 {
+		t.Fatalf("selected index = %d, want %d", got.selected, 1)
+	}
+}
+
+func TestDeleteFailureKeepsSelectionAndUntrashed(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	model.selected = 0
+	path := model.selectedEntryPath()
+
+	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path, err: errors.New("trash unavailable")})
+	got := updated.(Model)
+
+	if got.isTrashed(path) {
+		t.Fatalf("path %q should not be marked as trashed", path)
+	}
+	if got.selected != 0 {
+		t.Fatalf("selected index = %d, want %d", got.selected, 0)
+	}
+	if got.status != "Delete failed: trash unavailable" {
+		t.Fatalf("status = %q, want %q", got.status, "Delete failed: trash unavailable")
+	}
+}
+
+func TestDeleteOnAlreadyTrashedRowDoesNotInvokeAction(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	path := model.selectedEntryPath()
+	model.trashedPaths[path] = struct{}{}
+	called := false
+	model.trashPath = func(path string) error {
+		called = true
+		return nil
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	if cmd != nil {
+		t.Fatal("Update returned non-nil command for already trashed row")
+	}
+	if called {
+		t.Fatal("trash action was called for already trashed row")
+	}
+}
+
+func TestDeleteHelpIncludedInFullHelp(t *testing.T) {
+	found := false
+	for _, section := range defaultKeyMap().FullHelp() {
+		for _, binding := range section {
+			help := binding.Help()
+			if help.Key == "del" && help.Desc == "trash" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("full help does not include delete trash binding")
+	}
+}

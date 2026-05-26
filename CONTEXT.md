@@ -20,6 +20,10 @@ _Avoid_: weight, disk usage
 The ordering of **Root Entries** from largest to smallest **Entry Size**. Root entries without an **Entry Size** appear after all sized entries and are ordered by name.
 _Avoid_: sorting, order
 
+**Trashed Root Entry**:
+A **Root Entry** that the user moved to the operating system trash during the current Big session. It remains visible in the current **Size Ranking** but is visually distinguished from active **Root Entries**.
+_Avoid_: deleted item, removed node
+
 ## Example Dialogue
 
 Developer: "If the scan root contains `src`, `bin`, and `README.md`, how many rows should Big show?"

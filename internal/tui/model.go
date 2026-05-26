@@ -24,6 +24,7 @@ type keyMap struct {
 	End    key.Binding
 	Open   key.Binding
 	Reveal key.Binding
+	Delete key.Binding
 	Quit   key.Binding
 }
 
@@ -37,6 +38,7 @@ func defaultKeyMap() keyMap {
 		End:    key.NewBinding(key.WithKeys("end")),
 		Open:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/e", "open/reveal")),
 		Reveal: key.NewBinding(key.WithKeys("e")),
+		Delete: key.NewBinding(key.WithKeys("delete"), key.WithHelp("del", "trash")),
 		Quit:   key.NewBinding(key.WithKeys("q", "esc", "ctrl+c"), key.WithHelp("q/esc", "quit")),
 	}
 }
@@ -48,7 +50,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.PageUp, k.Home},
-		{k.Open, k.Quit},
+		{k.Open, k.Delete, k.Quit},
 	}
 }
 
@@ -78,12 +80,16 @@ type Model struct {
 
 	openPath   pathAction
 	revealPath pathAction
+	trashPath  pathAction
+
+	trashedPaths map[string]struct{}
 
 	headerStyle  lipgloss.Style
 	sizeStyle    lipgloss.Style
 	fileStyle    lipgloss.Style
 	folderStyle  lipgloss.Style
 	linkStyle    lipgloss.Style
+	trashedStyle lipgloss.Style
 	selectedName lipgloss.Style
 	statusStyle  lipgloss.Style
 	footerStyle  lipgloss.Style
@@ -118,6 +124,9 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 
 		openPath:   pathfs.OpenPath,
 		revealPath: pathfs.RevealPath,
+		trashPath:  pathfs.TrashPath,
+
+		trashedPaths: make(map[string]struct{}),
 
 		headerStyle: lipgloss.NewStyle().
 			Background(lipgloss.Color("170")).Padding(0, 1).
@@ -130,6 +139,8 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 			Foreground(lipgloss.Color("153")),
 		linkStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("109")),
+		trashedStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("242")),
 		selectedName: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("170")),
 		statusStyle: lipgloss.NewStyle().
@@ -200,9 +211,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.runPathAction("Open", m.openPath)
 		case key.Matches(typed, m.keys.Reveal):
 			return m, m.runPathAction("Reveal", m.revealPath)
+		case key.Matches(typed, m.keys.Delete):
+			path := m.selectedEntryPath()
+			if m.isTrashed(path) {
+				return m, nil
+			}
+			return m, m.runPathAction("Delete", m.trashPath)
 		}
 	case pathActionFinishedMsg:
 		if typed.err == nil {
+			if typed.verb == "Delete" {
+				m.trashedPaths[typed.path] = struct{}{}
+				if m.selected+1 < len(m.entries) {
+					m.selected++
+				}
+				m.keepSelectionVisible()
+				m.refreshViewportContent()
+			}
 			m.clearStatus()
 			return m, nil
 		}
@@ -276,12 +301,7 @@ func (m Model) runPathAction(verb string, action pathAction) tea.Cmd {
 }
 
 func (m Model) selectedEntryPath() string {
-	path := m.entries[m.selected].Path
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return filepath.Clean(path)
-	}
-	return absolute
+	return m.entryPath(m.entries[m.selected])
 }
 
 func (m *Model) moveSelection(delta int) {
@@ -317,7 +337,13 @@ func (m *Model) refreshViewportContent() {
 
 	lines := make([]string, 0, len(m.entries))
 	for idx, entry := range m.entries {
+		entryPath := m.entryPath(entry)
+		isTrashed := m.isTrashed(entryPath)
+
 		sizeStyle := m.sizeStyle
+		if isTrashed {
+			sizeStyle = m.trashedStyle.Inherit(sizeStyle)
+		}
 		if idx == m.selected {
 			sizeStyle = m.selectedName.Inherit(sizeStyle)
 		}
@@ -338,6 +364,9 @@ func (m *Model) refreshViewportContent() {
 		case scan.EntryOther:
 			nameStyle = m.linkStyle
 		}
+		if isTrashed {
+			nameStyle = m.trashedStyle.Inherit(nameStyle)
+		}
 		if idx == m.selected {
 			nameStyle = m.selectedName.Inherit(nameStyle)
 		}
@@ -346,6 +375,19 @@ func (m *Model) refreshViewportContent() {
 	}
 
 	m.viewport.SetContent(strings.Join(lines, "\n"))
+}
+
+func (m Model) entryPath(entry scan.RootEntry) string {
+	absolute, err := filepath.Abs(entry.Path)
+	if err != nil {
+		return filepath.Clean(entry.Path)
+	}
+	return absolute
+}
+
+func (m Model) isTrashed(path string) bool {
+	_, ok := m.trashedPaths[path]
+	return ok
 }
 
 func max(left int, right int) int {
