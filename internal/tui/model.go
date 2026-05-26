@@ -60,14 +60,13 @@ type Model struct {
 	help     help.Model
 	keys     keyMap
 
-	headerStyle   lipgloss.Style
-	sizeStyle     lipgloss.Style
-	fileStyle     lipgloss.Style
-	folderStyle   lipgloss.Style
-	linkStyle     lipgloss.Style
-	selectedStyle lipgloss.Style
-	selectedName  lipgloss.Style
-	footerStyle   lipgloss.Style
+	headerStyle  lipgloss.Style
+	sizeStyle    lipgloss.Style
+	fileStyle    lipgloss.Style
+	folderStyle  lipgloss.Style
+	linkStyle    lipgloss.Style
+	selectedName lipgloss.Style
+	footerStyle  lipgloss.Style
 }
 
 func NewModel(rootPath string, entries []scan.RootEntry) Model {
@@ -108,8 +107,6 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 			Foreground(lipgloss.Color("153")),
 		linkStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("109")),
-		selectedStyle: lipgloss.NewStyle().
-			Background(lipgloss.Color("238")),
 		selectedName: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("170")),
 		footerStyle: lipgloss.NewStyle().
@@ -241,6 +238,11 @@ func (m *Model) refreshViewportContent() {
 
 	lines := make([]string, 0, len(m.entries))
 	for idx, entry := range m.entries {
+		sizeStyle := m.sizeStyle
+		if idx == m.selected {
+			sizeStyle = m.selectedName.Inherit(sizeStyle)
+		}
+
 		sizeCell := strings.Repeat(" ", m.sizeWidth)
 		if entry.HasSize {
 			sizeCell = lipgloss.NewStyle().Width(m.sizeWidth).Align(lipgloss.Right).Render(scan.FormatSize(entry.Size))
@@ -260,10 +262,7 @@ func (m *Model) refreshViewportContent() {
 		if idx == m.selected {
 			nameStyle = m.selectedName.Inherit(nameStyle)
 		}
-		row := fmt.Sprintf("%s  %s", m.sizeStyle.Render(sizeCell), nameStyle.Render(name))
-		if idx == m.selected {
-			row = m.selectedStyle.Render(row)
-		}
+		row := fmt.Sprintf("%s  %s", sizeStyle.Render(sizeCell), nameStyle.Render(name))
 		lines = append(lines, row)
 	}
 
