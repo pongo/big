@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	pathfs "big/internal/fs"
@@ -15,9 +16,13 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+const oneMiB int64 = 1024 * 1024
+
 type keyMap struct {
 	Up     key.Binding
 	Down   key.Binding
+	Left   key.Binding
+	Right  key.Binding
 	PageUp key.Binding
 	PageDn key.Binding
 	Home   key.Binding
@@ -32,6 +37,8 @@ func defaultKeyMap() keyMap {
 	return keyMap{
 		Up:     key.NewBinding(key.WithKeys("up"), key.WithHelp("↑/↓", "navigate")),
 		Down:   key.NewBinding(key.WithKeys("down")),
+		Left:   key.NewBinding(key.WithKeys("left"), key.WithHelp("←/→", "views")),
+		Right:  key.NewBinding(key.WithKeys("right")),
 		PageUp: key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup/pgdn", "page scroll")),
 		PageDn: key.NewBinding(key.WithKeys("pgdown")),
 		Home:   key.NewBinding(key.WithKeys("home"), key.WithHelp("home/end", "first/last")),
@@ -44,12 +51,12 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.PageUp, k.Home, k.Open, k.Quit}
+	return []key.Binding{k.Up, k.Left, k.PageUp, k.Home, k.Open, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.PageUp, k.Home},
+		{k.Up, k.Left, k.PageUp, k.Home},
 		{k.Open, k.Delete, k.Quit},
 	}
 }
@@ -62,10 +69,17 @@ type pathActionFinishedMsg struct {
 	err  error
 }
 
+type entryView struct {
+	name    string
+	entries []scan.RootEntry
+}
+
 type Model struct {
 	rootPath string
 	header   string
-	entries  []scan.RootEntry
+
+	entryViews        []entryView
+	selectedEntryView int
 
 	sizeWidth int
 	selected  int
@@ -98,7 +112,7 @@ type Model struct {
 func NewModel(rootPath string, entries []scan.RootEntry) Model {
 	sizeWidth := len("Size")
 	for _, entry := range entries {
-		if !entry.HasSize {
+		if !showsSize(entry) {
 			continue
 		}
 		entrySizeWidth := len(scan.FormatSize(entry.Size))
@@ -111,9 +125,9 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 	keys := defaultKeyMap()
 
 	model := Model{
-		rootPath: rootPath,
-		header:   scanRootHeader(rootPath),
-		entries:  entries,
+		rootPath:   rootPath,
+		header:     scanRootHeader(rootPath),
+		entryViews: buildEntryViews(entries),
 
 		sizeWidth: sizeWidth,
 		selected:  0,
@@ -173,7 +187,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Matches(typed, m.keys.Quit) {
 			return m, tea.Quit
 		}
-		if len(m.entries) == 0 {
+		switch {
+		case key.Matches(typed, m.keys.Left):
+			m.switchEntryView(-1)
+			return m, nil
+		case key.Matches(typed, m.keys.Right):
+			m.switchEntryView(1)
+			return m, nil
+		}
+		if len(m.activeEntries()) == 0 {
 			return m, nil
 		}
 		switch {
@@ -203,7 +225,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(typed, m.keys.End):
 			m.clearStatus()
-			m.selected = len(m.entries) - 1
+			m.selected = len(m.activeEntries()) - 1
 			m.keepSelectionVisible()
 			m.refreshViewportContent()
 			return m, nil
@@ -216,13 +238,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.isTrashed(path) {
 				return m, nil
 			}
+			m.trashedPaths[path] = struct{}{}
+			m.refreshViewportContent()
 			return m, m.runPathAction("Delete", m.trashPath)
 		}
 	case pathActionFinishedMsg:
 		if typed.err == nil {
 			if typed.verb == "Delete" {
 				m.trashedPaths[typed.path] = struct{}{}
-				if m.selected+1 < len(m.entries) {
+				if m.selected+1 < len(m.activeEntries()) {
 					m.selected++
 				}
 				m.keepSelectionVisible()
@@ -230,6 +254,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.clearStatus()
 			return m, nil
+		}
+		if typed.verb == "Delete" {
+			delete(m.trashedPaths, typed.path)
+			m.refreshViewportContent()
 		}
 		m.status = fmt.Sprintf("%s failed: %v", typed.verb, typed.err)
 		m.resize()
@@ -242,11 +270,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	header := m.headerStyle.Render(m.header)
+	headerContent := m.renderHeaderContent()
+	header := headerContent
+	if strings.HasPrefix(headerContent, m.header) {
+		header = m.headerStyle.Render(m.header) + headerContent[len(m.header):]
+	}
 	footer := m.footerStyle.Render(m.help.View(m.keys))
 
 	var content string
-	if len(m.entries) == 0 {
+	if len(m.activeEntries()) == 0 {
 		content = "No entries"
 	} else {
 		content = m.viewport.View()
@@ -301,7 +333,7 @@ func (m Model) runPathAction(verb string, action pathAction) tea.Cmd {
 }
 
 func (m Model) selectedEntryPath() string {
-	return m.entryPath(m.entries[m.selected])
+	return m.entryPath(m.activeEntries()[m.selected])
 }
 
 func (m *Model) moveSelection(delta int) {
@@ -309,8 +341,8 @@ func (m *Model) moveSelection(delta int) {
 	if next < 0 {
 		next = 0
 	}
-	if next >= len(m.entries) {
-		next = len(m.entries) - 1
+	if next >= len(m.activeEntries()) {
+		next = len(m.activeEntries()) - 1
 	}
 	m.selected = next
 	m.keepSelectionVisible()
@@ -330,13 +362,14 @@ func (m *Model) keepSelectionVisible() {
 }
 
 func (m *Model) refreshViewportContent() {
-	if len(m.entries) == 0 {
+	entries := m.activeEntries()
+	if len(entries) == 0 {
 		m.viewport.SetContent("")
 		return
 	}
 
-	lines := make([]string, 0, len(m.entries))
-	for idx, entry := range m.entries {
+	lines := make([]string, 0, len(entries))
+	for idx, entry := range entries {
 		entryPath := m.entryPath(entry)
 		isTrashed := m.isTrashed(entryPath)
 
@@ -349,7 +382,7 @@ func (m *Model) refreshViewportContent() {
 		}
 
 		sizeCell := strings.Repeat(" ", m.sizeWidth)
-		if entry.HasSize {
+		if showsSize(entry) {
 			sizeCell = lipgloss.NewStyle().Width(m.sizeWidth).Align(lipgloss.Right).Render(scan.FormatSize(entry.Size))
 		}
 
@@ -375,6 +408,128 @@ func (m *Model) refreshViewportContent() {
 	}
 
 	m.viewport.SetContent(strings.Join(lines, "\n"))
+}
+
+func (m *Model) switchEntryView(delta int) {
+	if len(m.entryViews) == 0 {
+		return
+	}
+	next := m.selectedEntryView + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(m.entryViews) {
+		next = len(m.entryViews) - 1
+	}
+	if next == m.selectedEntryView {
+		return
+	}
+	m.selectedEntryView = next
+	m.clearStatus()
+	m.selected = 0
+	m.viewport.SetYOffset(0)
+	m.refreshViewportContent()
+}
+
+func (m Model) renderHeaderContent() string {
+	left := m.header
+	right := m.activeEntryViewName()
+	if right == "" {
+		return left
+	}
+	return left + " " + right
+}
+
+func (m Model) activeEntryViewName() string {
+	if len(m.entryViews) == 0 {
+		return ""
+	}
+	return m.entryViews[m.selectedEntryView].name
+}
+
+func (m Model) activeEntries() []scan.RootEntry {
+	if len(m.entryViews) == 0 {
+		return nil
+	}
+	return m.entryViews[m.selectedEntryView].entries
+}
+
+func buildEntryViews(entries []scan.RootEntry) []entryView {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	extensionCounts := make(map[string]int)
+	for _, entry := range entries {
+		if entry.Kind != scan.EntryFile {
+			continue
+		}
+		ext := normalizedExtension(entry.Name)
+		if ext == "" {
+			continue
+		}
+		extensionCounts[ext]++
+	}
+
+	folders := make([]scan.RootEntry, 0)
+	other := make([]scan.RootEntry, 0)
+	extensionEntries := make(map[string][]scan.RootEntry)
+	for _, entry := range entries {
+		switch entry.Kind {
+		case scan.EntryFolder:
+			folders = append(folders, entry)
+		case scan.EntryFile:
+			ext := normalizedExtension(entry.Name)
+			if ext == "" || extensionCounts[ext] < 5 {
+				other = append(other, entry)
+				continue
+			}
+			extensionEntries[ext] = append(extensionEntries[ext], entry)
+		default:
+			other = append(other, entry)
+		}
+	}
+
+	views := make([]entryView, 0, len(extensionEntries)+2)
+	if len(folders) > 0 {
+		views = append(views, entryView{name: "Folders", entries: folders})
+	}
+
+	extensionNames := make([]string, 0, len(extensionEntries))
+	for name := range extensionEntries {
+		extensionNames = append(extensionNames, name)
+	}
+	sort.Slice(extensionNames, func(i, j int) bool {
+		left := extensionNames[i]
+		right := extensionNames[j]
+		leftCount := extensionCounts[left]
+		rightCount := extensionCounts[right]
+		if leftCount != rightCount {
+			return leftCount > rightCount
+		}
+		return left < right
+	})
+	for _, name := range extensionNames {
+		views = append(views, entryView{name: name, entries: extensionEntries[name]})
+	}
+
+	if len(other) > 0 {
+		views = append(views, entryView{name: "Other", entries: other})
+	}
+
+	return views
+}
+
+func normalizedExtension(name string) string {
+	ext := filepath.Ext(name)
+	if ext == "" {
+		return ""
+	}
+	return strings.ToLower(ext)
+}
+
+func showsSize(entry scan.RootEntry) bool {
+	return entry.HasSize && entry.Size >= oneMiB
 }
 
 func (m Model) entryPath(entry scan.RootEntry) string {

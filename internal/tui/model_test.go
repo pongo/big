@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"big/internal/scan"
@@ -253,6 +254,31 @@ func TestDeleteFailureKeepsSelectionAndUntrashed(t *testing.T) {
 	}
 }
 
+func TestDeleteFailureRollsBackOptimisticTrashedState(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	model.trashPath = func(path string) error {
+		return errors.New("trash unavailable")
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	got := updated.(Model)
+	path := got.selectedEntryPath()
+	if !got.isTrashed(path) {
+		t.Fatalf("path %q is not optimistically marked as trashed", path)
+	}
+
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if got.isTrashed(path) {
+		t.Fatalf("path %q should not stay trashed after delete failure", path)
+	}
+	if got.status != "Delete failed: trash unavailable" {
+		t.Fatalf("status = %q, want %q", got.status, "Delete failed: trash unavailable")
+	}
+}
+
 func TestDeleteOnAlreadyTrashedRowDoesNotInvokeAction(t *testing.T) {
 	model := NewModel("root", []scan.RootEntry{
 		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
@@ -274,6 +300,34 @@ func TestDeleteOnAlreadyTrashedRowDoesNotInvokeAction(t *testing.T) {
 	}
 }
 
+func TestRapidDeleteOnSameRowDoesNotInvokeActionTwice(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	model.selected = 0
+	calls := 0
+	model.trashPath = func(path string) error {
+		calls++
+		return nil
+	}
+
+	updated, firstCmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	if firstCmd == nil {
+		t.Fatal("first Update returned nil command")
+	}
+
+	_, secondCmd := updated.(Model).Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	if secondCmd != nil {
+		t.Fatal("second Update returned non-nil command while delete was in flight")
+	}
+
+	firstCmd()
+	if calls != 1 {
+		t.Fatalf("trash action calls = %d, want 1", calls)
+	}
+}
+
 func TestDeleteHelpIncludedInFullHelp(t *testing.T) {
 	found := false
 	for _, section := range defaultKeyMap().FullHelp() {
@@ -287,4 +341,261 @@ func TestDeleteHelpIncludedInFullHelp(t *testing.T) {
 	if !found {
 		t.Fatal("full help does not include delete trash binding")
 	}
+}
+
+func TestOpenUsesSelectedEntryFromActiveEntryView(t *testing.T) {
+	firstPath := filepath.Join("root", "first.txt")
+	secondPath := filepath.Join("root", "second.txt")
+	wantPath, err := filepath.Abs(secondPath)
+	if err != nil {
+		t.Fatalf("filepath.Abs returned error: %v", err)
+	}
+
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: firstPath, Kind: scan.EntryFile, HasSize: true},
+		{Name: "second.txt", Path: secondPath, Kind: scan.EntryFile, HasSize: true},
+	})
+	model.entryViews = []entryView{
+		{
+			name: "Filtered",
+			entries: []scan.RootEntry{
+				{Name: "second.txt", Path: secondPath, Kind: scan.EntryFile, HasSize: true},
+			},
+		},
+	}
+	model.selectedEntryView = 0
+	model.selected = 0
+
+	var opened string
+	model.openPath = func(path string) error {
+		opened = path
+		return nil
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd == nil {
+		t.Fatal("Update returned nil command")
+	}
+	gotMsg := cmd()
+	msg, ok := gotMsg.(pathActionFinishedMsg)
+	if !ok {
+		t.Fatalf("command returned %T, want pathActionFinishedMsg", gotMsg)
+	}
+
+	if opened != wantPath {
+		t.Fatalf("opened path = %q, want %q", opened, wantPath)
+	}
+	if msg.path != wantPath {
+		t.Fatalf("path action message path = %q, want %q", msg.path, wantPath)
+	}
+}
+
+func TestBuildEntryViewsGroupsAndOrdersViews(t *testing.T) {
+	entries := []scan.RootEntry{
+		{Name: "z-folder", Path: "z-folder", Kind: scan.EntryFolder, HasSize: true, Size: 300},
+		{Name: "a.JPG", Path: "a.JPG", Kind: scan.EntryFile, HasSize: true, Size: 200},
+		{Name: "x.bin", Path: "x.bin", Kind: scan.EntryFile, HasSize: true, Size: 190},
+		{Name: "b.jpg", Path: "b.jpg", Kind: scan.EntryFile, HasSize: true, Size: 180},
+		{Name: ".env", Path: ".env", Kind: scan.EntryFile, HasSize: true, Size: 170},
+		{Name: "c.Jpg", Path: "c.Jpg", Kind: scan.EntryFile, HasSize: true, Size: 160},
+		{Name: "d.TXT", Path: "d.TXT", Kind: scan.EntryFile, HasSize: true, Size: 150},
+		{Name: "e.txt", Path: "e.txt", Kind: scan.EntryFile, HasSize: true, Size: 140},
+		{Name: "f.TxT", Path: "f.TxT", Kind: scan.EntryFile, HasSize: true, Size: 130},
+		{Name: "link", Path: "link", Kind: scan.EntryOther},
+		{Name: "g.md", Path: "g.md", Kind: scan.EntryFile, HasSize: true, Size: 120},
+		{Name: "h.tar.gz", Path: "h.tar.gz", Kind: scan.EntryFile, HasSize: true, Size: 110},
+	}
+
+	views := buildEntryViews(entries)
+	gotNames := make([]string, 0, len(views))
+	for _, view := range views {
+		gotNames = append(gotNames, view.name)
+	}
+	wantNames := []string{"Folders", "Other"}
+	if !equalStrings(gotNames, wantNames) {
+		t.Fatalf("view names = %#v, want %#v", gotNames, wantNames)
+	}
+
+	if got := namesFromEntries(views[0].entries); !equalStrings(got, []string{"z-folder"}) {
+		t.Fatalf("Folders entries = %#v, want %#v", got, []string{"z-folder"})
+	}
+	if got := namesFromEntries(views[1].entries); !equalStrings(got, []string{"a.JPG", "x.bin", "b.jpg", ".env", "c.Jpg", "d.TXT", "e.txt", "f.TxT", "link", "g.md", "h.tar.gz"}) {
+		t.Fatalf("Other entries = %#v, want %#v", got, []string{"a.JPG", "x.bin", "b.jpg", ".env", "c.Jpg", "d.TXT", "e.txt", "f.TxT", "link", "g.md", "h.tar.gz"})
+	}
+}
+
+func TestBuildEntryViewsOmitsEmptyViews(t *testing.T) {
+	entries := []scan.RootEntry{
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 10},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 9},
+	}
+
+	views := buildEntryViews(entries)
+	if len(views) != 1 {
+		t.Fatalf("views len = %d, want %d", len(views), 1)
+	}
+	if views[0].name != "Other" {
+		t.Fatalf("single view name = %q, want %q", views[0].name, "Other")
+	}
+}
+
+func TestBuildEntryViewsOrdersExtensionTiesByName(t *testing.T) {
+	entries := []scan.RootEntry{
+		{Name: "a.zzz", Path: "a.zzz", Kind: scan.EntryFile, HasSize: true, Size: 30},
+		{Name: "a.aaa", Path: "a.aaa", Kind: scan.EntryFile, HasSize: true, Size: 29},
+		{Name: "b.zzz", Path: "b.zzz", Kind: scan.EntryFile, HasSize: true, Size: 28},
+		{Name: "b.aaa", Path: "b.aaa", Kind: scan.EntryFile, HasSize: true, Size: 27},
+		{Name: "c.zzz", Path: "c.zzz", Kind: scan.EntryFile, HasSize: true, Size: 26},
+		{Name: "c.aaa", Path: "c.aaa", Kind: scan.EntryFile, HasSize: true, Size: 25},
+		{Name: "d.zzz", Path: "d.zzz", Kind: scan.EntryFile, HasSize: true, Size: 24},
+		{Name: "d.aaa", Path: "d.aaa", Kind: scan.EntryFile, HasSize: true, Size: 23},
+		{Name: "e.zzz", Path: "e.zzz", Kind: scan.EntryFile, HasSize: true, Size: 22},
+		{Name: "e.aaa", Path: "e.aaa", Kind: scan.EntryFile, HasSize: true, Size: 21},
+	}
+
+	views := buildEntryViews(entries)
+	gotNames := make([]string, 0, len(views))
+	for _, view := range views {
+		gotNames = append(gotNames, view.name)
+	}
+	wantNames := []string{".aaa", ".zzz"}
+	if !equalStrings(gotNames, wantNames) {
+		t.Fatalf("view names = %#v, want %#v", gotNames, wantNames)
+	}
+}
+
+func TestLeftRightSwitchEntryViewsWithClampAndReset(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "folder", Path: "folder", Kind: scan.EntryFolder, HasSize: true, Size: 300},
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 200},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 190},
+		{Name: "c.txt", Path: "c.txt", Kind: scan.EntryFile, HasSize: true, Size: 180},
+		{Name: "odd.bin", Path: "odd.bin", Kind: scan.EntryFile, HasSize: true, Size: 170},
+	})
+	model.status = "Open failed: test"
+	model.selectedEntryView = 1
+	model.selected = 2
+	model.viewport.SetYOffset(3)
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	got := updated.(Model)
+	if got.selectedEntryView != 0 {
+		t.Fatalf("selected entry view = %d, want %d", got.selectedEntryView, 0)
+	}
+	if got.selected != 0 {
+		t.Fatalf("selected row = %d, want %d", got.selected, 0)
+	}
+	if got.viewport.YOffset() != 0 {
+		t.Fatalf("viewport y offset = %d, want %d", got.viewport.YOffset(), 0)
+	}
+	if got.status != "" {
+		t.Fatalf("status = %q, want empty status", got.status)
+	}
+
+	updated, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	got = updated.(Model)
+	if got.selectedEntryView != 0 {
+		t.Fatalf("selected entry view after clamp-left = %d, want %d", got.selectedEntryView, 0)
+	}
+
+	updated, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	got = updated.(Model)
+	if got.selectedEntryView != 1 {
+		t.Fatalf("selected entry view after right = %d, want %d", got.selectedEntryView, 1)
+	}
+}
+
+func TestHeaderRendersActiveEntryViewNameRightAligned(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 10},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 9},
+		{Name: "c.txt", Path: "c.txt", Kind: scan.EntryFile, HasSize: true, Size: 8},
+	})
+	model.width = 30
+
+	header := model.renderHeaderContent()
+	if !strings.HasPrefix(header, "root") {
+		t.Fatalf("header %q does not start with %q", header, "root")
+	}
+	if !strings.HasSuffix(header, "Other") {
+		t.Fatalf("header %q does not end with %q", header, "Other")
+	}
+
+	model.entryViews = append([]entryView{{name: "Folders", entries: nil}}, model.entryViews...)
+	model.selectedEntryView = 1
+	header = model.renderHeaderContent()
+	if !strings.HasPrefix(header, "root") {
+		t.Fatalf("header %q does not start with %q", header, "root")
+	}
+	if !strings.HasSuffix(header, "Other") {
+		t.Fatalf("header %q does not end with %q", header, "Other")
+	}
+}
+
+func TestEmptyRootHasNoActiveEntryViewName(t *testing.T) {
+	model := NewModel("root", nil)
+	if got := model.activeEntryViewName(); got != "" {
+		t.Fatalf("active entry view name = %q, want empty", got)
+	}
+}
+
+func TestDeleteInNonFirstEntryViewMarksTrashedInThatView(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "folder", Path: "folder", Kind: scan.EntryFolder, HasSize: true, Size: 300},
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 200},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 190},
+		{Name: "c.txt", Path: "c.txt", Kind: scan.EntryFile, HasSize: true, Size: 180},
+	})
+	model.selectedEntryView = 1
+	model.selected = 0
+
+	path := model.selectedEntryPath()
+	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path})
+	got := updated.(Model)
+
+	if !got.isTrashed(path) {
+		t.Fatalf("path %q is not marked as trashed", path)
+	}
+	if got.entryViews[1].entries[0].Path != "a.txt" {
+		t.Fatalf("trashed entry disappeared from its view, first path = %q", got.entryViews[1].entries[0].Path)
+	}
+}
+
+func TestViewportHidesSizeForEntriesBelowOneMiB(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "small.txt", Path: "small.txt", Kind: scan.EntryFile, HasSize: true, Size: 900 * 1024},
+		{Name: "large.txt", Path: "large.txt", Kind: scan.EntryFile, HasSize: true, Size: 2 * 1024 * 1024},
+	})
+	model.width = 80
+	model.height = 10
+	model.resize()
+	model.refreshViewportContent()
+
+	view := model.viewport.View()
+	if strings.Contains(view, "900 KB") {
+		t.Fatalf("view should hide size below 1 MiB, got %q", view)
+	}
+	if !strings.Contains(view, "2 MB") {
+		t.Fatalf("view should render size at or above 1 MiB, got %q", view)
+	}
+}
+
+func namesFromEntries(entries []scan.RootEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name)
+	}
+	return names
+}
+
+func equalStrings(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for idx := range left {
+		if left[idx] != right[idx] {
+			return false
+		}
+	}
+	return true
 }
