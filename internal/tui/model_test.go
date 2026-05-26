@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"big/internal/scan"
@@ -409,6 +410,103 @@ func TestBuildEntryViewsOrdersExtensionTiesByName(t *testing.T) {
 	wantNames := []string{".aaa", ".zzz"}
 	if !equalStrings(gotNames, wantNames) {
 		t.Fatalf("view names = %#v, want %#v", gotNames, wantNames)
+	}
+}
+
+func TestLeftRightSwitchEntryViewsWithClampAndReset(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "folder", Path: "folder", Kind: scan.EntryFolder, HasSize: true, Size: 300},
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 200},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 190},
+		{Name: "c.txt", Path: "c.txt", Kind: scan.EntryFile, HasSize: true, Size: 180},
+		{Name: "odd.bin", Path: "odd.bin", Kind: scan.EntryFile, HasSize: true, Size: 170},
+	})
+	model.status = "Open failed: test"
+	model.selectedEntryView = 1
+	model.selected = 2
+	model.viewport.SetYOffset(3)
+
+	updated, _ := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	got := updated.(Model)
+	if got.selectedEntryView != 0 {
+		t.Fatalf("selected entry view = %d, want %d", got.selectedEntryView, 0)
+	}
+	if got.selected != 0 {
+		t.Fatalf("selected row = %d, want %d", got.selected, 0)
+	}
+	if got.viewport.YOffset() != 0 {
+		t.Fatalf("viewport y offset = %d, want %d", got.viewport.YOffset(), 0)
+	}
+	if got.status != "" {
+		t.Fatalf("status = %q, want empty status", got.status)
+	}
+
+	updated, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
+	got = updated.(Model)
+	if got.selectedEntryView != 0 {
+		t.Fatalf("selected entry view after clamp-left = %d, want %d", got.selectedEntryView, 0)
+	}
+
+	updated, _ = got.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyRight}))
+	got = updated.(Model)
+	if got.selectedEntryView != 1 {
+		t.Fatalf("selected entry view after right = %d, want %d", got.selectedEntryView, 1)
+	}
+}
+
+func TestHeaderRendersActiveEntryViewNameRightAligned(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 10},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 9},
+		{Name: "c.txt", Path: "c.txt", Kind: scan.EntryFile, HasSize: true, Size: 8},
+	})
+	model.width = 30
+
+	header := model.renderHeaderContent()
+	if !strings.HasPrefix(header, "root") {
+		t.Fatalf("header %q does not start with %q", header, "root")
+	}
+	if !strings.HasSuffix(header, ".txt") {
+		t.Fatalf("header %q does not end with %q", header, ".txt")
+	}
+
+	model.entryViews = append([]entryView{{name: "Folders", entries: nil}}, model.entryViews...)
+	model.selectedEntryView = 1
+	header = model.renderHeaderContent()
+	if !strings.HasPrefix(header, "root") {
+		t.Fatalf("header %q does not start with %q", header, "root")
+	}
+	if !strings.HasSuffix(header, ".txt") {
+		t.Fatalf("header %q does not end with %q", header, ".txt")
+	}
+}
+
+func TestEmptyRootHasNoActiveEntryViewName(t *testing.T) {
+	model := NewModel("root", nil)
+	if got := model.activeEntryViewName(); got != "" {
+		t.Fatalf("active entry view name = %q, want empty", got)
+	}
+}
+
+func TestDeleteInNonFirstEntryViewMarksTrashedInThatView(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "folder", Path: "folder", Kind: scan.EntryFolder, HasSize: true, Size: 300},
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 200},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 190},
+		{Name: "c.txt", Path: "c.txt", Kind: scan.EntryFile, HasSize: true, Size: 180},
+	})
+	model.selectedEntryView = 1
+	model.selected = 0
+
+	path := model.selectedEntryPath()
+	updated, _ := model.Update(pathActionFinishedMsg{verb: "Delete", path: path})
+	got := updated.(Model)
+
+	if !got.isTrashed(path) {
+		t.Fatalf("path %q is not marked as trashed", path)
+	}
+	if got.entryViews[1].entries[0].Path != "a.txt" {
+		t.Fatalf("trashed entry disappeared from its view, first path = %q", got.entryViews[1].entries[0].Path)
 	}
 }
 

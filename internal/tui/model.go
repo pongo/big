@@ -19,6 +19,8 @@ import (
 type keyMap struct {
 	Up     key.Binding
 	Down   key.Binding
+	Left   key.Binding
+	Right  key.Binding
 	PageUp key.Binding
 	PageDn key.Binding
 	Home   key.Binding
@@ -33,6 +35,8 @@ func defaultKeyMap() keyMap {
 	return keyMap{
 		Up:     key.NewBinding(key.WithKeys("up"), key.WithHelp("↑/↓", "navigate")),
 		Down:   key.NewBinding(key.WithKeys("down")),
+		Left:   key.NewBinding(key.WithKeys("left"), key.WithHelp("←/→", "views")),
+		Right:  key.NewBinding(key.WithKeys("right")),
 		PageUp: key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup/pgdn", "page scroll")),
 		PageDn: key.NewBinding(key.WithKeys("pgdown")),
 		Home:   key.NewBinding(key.WithKeys("home"), key.WithHelp("home/end", "first/last")),
@@ -45,12 +49,12 @@ func defaultKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.PageUp, k.Home, k.Open, k.Quit}
+	return []key.Binding{k.Up, k.Left, k.PageUp, k.Home, k.Open, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.PageUp, k.Home},
+		{k.Up, k.Left, k.PageUp, k.Home},
 		{k.Open, k.Delete, k.Quit},
 	}
 }
@@ -181,6 +185,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Matches(typed, m.keys.Quit) {
 			return m, tea.Quit
 		}
+		switch {
+		case key.Matches(typed, m.keys.Left):
+			m.switchEntryView(-1)
+			return m, nil
+		case key.Matches(typed, m.keys.Right):
+			m.switchEntryView(1)
+			return m, nil
+		}
 		if len(m.activeEntries()) == 0 {
 			return m, nil
 		}
@@ -250,7 +262,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	header := m.headerStyle.Render(m.header)
+	header := m.headerStyle.Render(m.renderHeaderContent())
 	footer := m.footerStyle.Render(m.help.View(m.keys))
 
 	var content string
@@ -384,6 +396,60 @@ func (m *Model) refreshViewportContent() {
 	}
 
 	m.viewport.SetContent(strings.Join(lines, "\n"))
+}
+
+func (m *Model) switchEntryView(delta int) {
+	if len(m.entryViews) == 0 {
+		return
+	}
+	next := m.selectedEntryView + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(m.entryViews) {
+		next = len(m.entryViews) - 1
+	}
+	if next == m.selectedEntryView {
+		return
+	}
+	m.selectedEntryView = next
+	m.clearStatus()
+	m.selected = 0
+	m.viewport.SetYOffset(0)
+	m.refreshViewportContent()
+}
+
+func (m Model) renderHeaderContent() string {
+	left := m.header
+	right := m.activeEntryViewName()
+	if right == "" {
+		return left
+	}
+
+	if m.width <= 0 {
+		return left
+	}
+
+	totalWidth := m.width - 2
+	if totalWidth <= 0 {
+		return left
+	}
+
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(right)
+	if leftWidth+1+rightWidth > totalWidth {
+		return left
+	}
+
+	padding := strings.Repeat(" ", totalWidth-leftWidth-rightWidth)
+	return left + padding + right
+}
+
+func (m Model) activeEntryViewName() string {
+	if len(m.entryViews) == 0 {
+		return ""
+	}
+	return m.entryViews[m.selectedEntryView].name
 }
 
 func (m Model) activeEntries() []scan.RootEntry {
