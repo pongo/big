@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -176,7 +177,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	header := m.headerStyle.Render(fmt.Sprintf("Big - %s", m.header))
+	header := m.headerStyle.Render(m.header)
 	footer := m.footerStyle.Render(m.help.View(m.keys))
 
 	var content string
@@ -278,6 +279,12 @@ func max(left int, right int) int {
 
 func scanRootHeader(rootPath string) string {
 	cleaned := filepath.Clean(rootPath)
+	if cleaned == "." {
+		wd, err := os.Getwd()
+		if err == nil {
+			cleaned = filepath.Clean(wd)
+		}
+	}
 	base := filepath.Base(cleaned)
 	if base == "." || base == string(filepath.Separator) || strings.HasSuffix(base, ":\\") {
 		return cleaned
