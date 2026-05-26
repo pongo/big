@@ -20,6 +20,10 @@ _Avoid_: weight, disk usage
 The ordering of **Root Entries**: sized entries of at least 1 MiB appear first from largest to smallest **Entry Size**, with entries of the same **Entry Size** ordered by name; sized entries below 1 MiB appear next ordered by name; and entries without an **Entry Size** appear last ordered by name.
 _Avoid_: sorting, order
 
+**Entry View**:
+A named subset of **Root Entries** shown in the terminal interface. Big can expose multiple **Entry Views** for the same **Scan Root** without changing what was scanned.
+_Avoid_: list, tab, category
+
 **Trashed Root Entry**:
 A **Root Entry** that the user moved to the operating system trash during the current Big session. It remains visible in the current **Size Ranking** but is visually distinguished from active **Root Entries**.
 _Avoid_: deleted item, removed node

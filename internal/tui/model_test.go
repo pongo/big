@@ -288,3 +288,50 @@ func TestDeleteHelpIncludedInFullHelp(t *testing.T) {
 		t.Fatal("full help does not include delete trash binding")
 	}
 }
+
+func TestOpenUsesSelectedEntryFromActiveEntryView(t *testing.T) {
+	firstPath := filepath.Join("root", "first.txt")
+	secondPath := filepath.Join("root", "second.txt")
+	wantPath, err := filepath.Abs(secondPath)
+	if err != nil {
+		t.Fatalf("filepath.Abs returned error: %v", err)
+	}
+
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: firstPath, Kind: scan.EntryFile, HasSize: true},
+		{Name: "second.txt", Path: secondPath, Kind: scan.EntryFile, HasSize: true},
+	})
+	model.entryViews = []entryView{
+		{
+			name: "Filtered",
+			entries: []scan.RootEntry{
+				{Name: "second.txt", Path: secondPath, Kind: scan.EntryFile, HasSize: true},
+			},
+		},
+	}
+	model.selectedEntryView = 0
+	model.selected = 0
+
+	var opened string
+	model.openPath = func(path string) error {
+		opened = path
+		return nil
+	}
+
+	_, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd == nil {
+		t.Fatal("Update returned nil command")
+	}
+	gotMsg := cmd()
+	msg, ok := gotMsg.(pathActionFinishedMsg)
+	if !ok {
+		t.Fatalf("command returned %T, want pathActionFinishedMsg", gotMsg)
+	}
+
+	if opened != wantPath {
+		t.Fatalf("opened path = %q, want %q", opened, wantPath)
+	}
+	if msg.path != wantPath {
+		t.Fatalf("path action message path = %q, want %q", msg.path, wantPath)
+	}
+}

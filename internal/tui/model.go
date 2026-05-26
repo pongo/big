@@ -62,10 +62,17 @@ type pathActionFinishedMsg struct {
 	err  error
 }
 
+type entryView struct {
+	name    string
+	entries []scan.RootEntry
+}
+
 type Model struct {
 	rootPath string
 	header   string
-	entries  []scan.RootEntry
+
+	entryViews        []entryView
+	selectedEntryView int
 
 	sizeWidth int
 	selected  int
@@ -111,9 +118,9 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 	keys := defaultKeyMap()
 
 	model := Model{
-		rootPath: rootPath,
-		header:   scanRootHeader(rootPath),
-		entries:  entries,
+		rootPath:   rootPath,
+		header:     scanRootHeader(rootPath),
+		entryViews: buildCompatibilityEntryViews(entries),
 
 		sizeWidth: sizeWidth,
 		selected:  0,
@@ -173,7 +180,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Matches(typed, m.keys.Quit) {
 			return m, tea.Quit
 		}
-		if len(m.entries) == 0 {
+		if len(m.activeEntries()) == 0 {
 			return m, nil
 		}
 		switch {
@@ -203,7 +210,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(typed, m.keys.End):
 			m.clearStatus()
-			m.selected = len(m.entries) - 1
+			m.selected = len(m.activeEntries()) - 1
 			m.keepSelectionVisible()
 			m.refreshViewportContent()
 			return m, nil
@@ -222,7 +229,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if typed.err == nil {
 			if typed.verb == "Delete" {
 				m.trashedPaths[typed.path] = struct{}{}
-				if m.selected+1 < len(m.entries) {
+				if m.selected+1 < len(m.activeEntries()) {
 					m.selected++
 				}
 				m.keepSelectionVisible()
@@ -246,7 +253,7 @@ func (m Model) View() tea.View {
 	footer := m.footerStyle.Render(m.help.View(m.keys))
 
 	var content string
-	if len(m.entries) == 0 {
+	if len(m.activeEntries()) == 0 {
 		content = "No entries"
 	} else {
 		content = m.viewport.View()
@@ -301,7 +308,7 @@ func (m Model) runPathAction(verb string, action pathAction) tea.Cmd {
 }
 
 func (m Model) selectedEntryPath() string {
-	return m.entryPath(m.entries[m.selected])
+	return m.entryPath(m.activeEntries()[m.selected])
 }
 
 func (m *Model) moveSelection(delta int) {
@@ -309,8 +316,8 @@ func (m *Model) moveSelection(delta int) {
 	if next < 0 {
 		next = 0
 	}
-	if next >= len(m.entries) {
-		next = len(m.entries) - 1
+	if next >= len(m.activeEntries()) {
+		next = len(m.activeEntries()) - 1
 	}
 	m.selected = next
 	m.keepSelectionVisible()
@@ -330,13 +337,14 @@ func (m *Model) keepSelectionVisible() {
 }
 
 func (m *Model) refreshViewportContent() {
-	if len(m.entries) == 0 {
+	entries := m.activeEntries()
+	if len(entries) == 0 {
 		m.viewport.SetContent("")
 		return
 	}
 
-	lines := make([]string, 0, len(m.entries))
-	for idx, entry := range m.entries {
+	lines := make([]string, 0, len(entries))
+	for idx, entry := range entries {
 		entryPath := m.entryPath(entry)
 		isTrashed := m.isTrashed(entryPath)
 
@@ -375,6 +383,25 @@ func (m *Model) refreshViewportContent() {
 	}
 
 	m.viewport.SetContent(strings.Join(lines, "\n"))
+}
+
+func (m Model) activeEntries() []scan.RootEntry {
+	if len(m.entryViews) == 0 {
+		return nil
+	}
+	return m.entryViews[m.selectedEntryView].entries
+}
+
+func buildCompatibilityEntryViews(entries []scan.RootEntry) []entryView {
+	if len(entries) == 0 {
+		return nil
+	}
+	return []entryView{
+		{
+			name:    "All",
+			entries: entries,
+		},
+	}
 }
 
 func (m Model) entryPath(entry scan.RootEntry) string {
