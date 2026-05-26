@@ -31,6 +31,31 @@ type RootEntry struct {
 	LinkTarget string
 }
 
+type SizeRankingGroup int
+
+const (
+	SizeRankingLarge SizeRankingGroup = iota
+	SizeRankingSmall
+	SizeRankingNoSize
+)
+
+const sizeRankingDisplayThreshold int64 = 1024 * 1024
+
+func SizeRanking(entry RootEntry) SizeRankingGroup {
+	switch {
+	case !entry.HasSize:
+		return SizeRankingNoSize
+	case entry.Size >= sizeRankingDisplayThreshold:
+		return SizeRankingLarge
+	default:
+		return SizeRankingSmall
+	}
+}
+
+func ShowsSize(entry RootEntry) bool {
+	return SizeRanking(entry) == SizeRankingLarge
+}
+
 type FS interface {
 	Lstat(name string) (fs.FileInfo, error)
 	ReadDir(name string) ([]fs.DirEntry, error)
@@ -135,30 +160,17 @@ func (s *Scanner) dirSize(path string) int64 {
 }
 
 func SortRootEntries(entries []RootEntry) {
-	const oneMiB int64 = 1024 * 1024
-
-	rankGroup := func(entry RootEntry) int {
-		switch {
-		case !entry.HasSize:
-			return 2
-		case entry.Size >= oneMiB:
-			return 0
-		default:
-			return 1
-		}
-	}
-
 	sort.SliceStable(entries, func(i, j int) bool {
 		left := entries[i]
 		right := entries[j]
 
-		leftGroup := rankGroup(left)
-		rightGroup := rankGroup(right)
+		leftGroup := SizeRanking(left)
+		rightGroup := SizeRanking(right)
 		if leftGroup != rightGroup {
 			return leftGroup < rightGroup
 		}
 
-		if leftGroup == 0 && left.Size != right.Size {
+		if leftGroup == SizeRankingLarge && left.Size != right.Size {
 			return left.Size > right.Size
 		}
 

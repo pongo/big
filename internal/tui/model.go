@@ -15,8 +15,6 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-const oneMiB int64 = 1024 * 1024
-
 type keyMap struct {
 	Up     key.Binding
 	Down   key.Binding
@@ -104,7 +102,7 @@ type Model struct {
 func NewModel(rootPath string, entries []scan.RootEntry) Model {
 	sizeWidth := len("Size")
 	for _, entry := range entries {
-		if !showsSize(entry) {
+		if !scan.ShowsSize(entry) {
 			continue
 		}
 		entrySizeWidth := len(scan.FormatSize(entry.Size))
@@ -367,7 +365,7 @@ func (m *Model) refreshViewportContent() {
 		}
 
 		sizeCell := strings.Repeat(" ", m.sizeWidth)
-		if showsSize(entry) {
+		if scan.ShowsSize(entry) {
 			sizeCell = lipgloss.NewStyle().Width(m.sizeWidth).Align(lipgloss.Right).Render(scan.FormatSize(entry.Size))
 		}
 
@@ -419,10 +417,6 @@ func (m Model) activeEntryViewName() string {
 
 func (m Model) activeEntries() []scan.RootEntry {
 	return m.entryViews.activeEntries()
-}
-
-func showsSize(entry scan.RootEntry) bool {
-	return entry.HasSize && entry.Size >= oneMiB
 }
 
 func (m Model) entryPath(entry scan.RootEntry) string {

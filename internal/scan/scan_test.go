@@ -94,6 +94,38 @@ func TestSortRootEntriesFilesAndFoldersFollowSameThresholdRule(t *testing.T) {
 	}
 }
 
+func TestSizeRankingDrivesDisplayVisibility(t *testing.T) {
+	cases := []struct {
+		name  string
+		entry RootEntry
+		want  bool
+	}{
+		{
+			name:  "below ranking threshold",
+			entry: RootEntry{HasSize: true, Size: 900 * 1024},
+			want:  false,
+		},
+		{
+			name:  "at ranking threshold",
+			entry: RootEntry{HasSize: true, Size: 1024 * 1024},
+			want:  true,
+		},
+		{
+			name:  "without size",
+			entry: RootEntry{},
+			want:  false,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ShowsSize(tt.entry); got != tt.want {
+				t.Fatalf("ShowsSize() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRecursiveFolderSizing(t *testing.T) {
 	fsys := newFakeFS()
 	fsys.addDir("root")
