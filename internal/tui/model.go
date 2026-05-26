@@ -26,24 +26,24 @@ type keyMap struct {
 
 func defaultKeyMap() keyMap {
 	return keyMap{
-		Up:     key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up")),
-		Down:   key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down")),
-		PageUp: key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "page up")),
-		PageDn: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "page down")),
-		Home:   key.NewBinding(key.WithKeys("home"), key.WithHelp("home", "first")),
-		End:    key.NewBinding(key.WithKeys("end"), key.WithHelp("end", "last")),
+		Up:     key.NewBinding(key.WithKeys("up"), key.WithHelp("↑/↓", "navigate")),
+		Down:   key.NewBinding(key.WithKeys("down")),
+		PageUp: key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup/pgdn", "page scroll")),
+		PageDn: key.NewBinding(key.WithKeys("pgdown")),
+		Home:   key.NewBinding(key.WithKeys("home"), key.WithHelp("home/end", "first/last")),
+		End:    key.NewBinding(key.WithKeys("end")),
 		Quit:   key.NewBinding(key.WithKeys("q", "esc", "ctrl+c"), key.WithHelp("q/esc", "quit")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.PageUp, k.PageDn, k.Home, k.End, k.Quit}
+	return []key.Binding{k.Up, k.PageUp, k.Home, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.PageUp, k.PageDn},
-		{k.Home, k.End, k.Quit},
+		{k.Up, k.PageUp},
+		{k.Home, k.Quit},
 	}
 }
 
