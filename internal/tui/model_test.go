@@ -515,22 +515,22 @@ func TestHeaderRendersActiveEntryViewNameRightAligned(t *testing.T) {
 	})
 	model.width = 30
 
-	header := model.renderHeaderContent()
-	if !strings.HasPrefix(header, "root") {
-		t.Fatalf("header %q does not start with %q", header, "root")
+	headerLeft, headerRight := model.renderHeaderContent()
+	if headerLeft != "root" {
+		t.Fatalf("header left = %q, want %q", headerLeft, "root")
 	}
-	if !strings.HasSuffix(header, "Other") {
-		t.Fatalf("header %q does not end with %q", header, "Other")
+	if headerRight != "Other" {
+		t.Fatalf("header right = %q, want %q", headerRight, "Other")
 	}
 
 	model.entryViews.views = append([]entryView{{name: "Folders", entries: nil}}, model.entryViews.views...)
 	model.entryViews.active = 1
-	header = model.renderHeaderContent()
-	if !strings.HasPrefix(header, "root") {
-		t.Fatalf("header %q does not start with %q", header, "root")
+	headerLeft, headerRight = model.renderHeaderContent()
+	if headerLeft != "root" {
+		t.Fatalf("header left = %q, want %q", headerLeft, "root")
 	}
-	if !strings.HasSuffix(header, "Other") {
-		t.Fatalf("header %q does not end with %q", header, "Other")
+	if headerRight != "Other" {
+		t.Fatalf("header right = %q, want %q", headerRight, "Other")
 	}
 }
 

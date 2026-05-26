@@ -257,10 +257,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	headerContent := m.renderHeaderContent()
-	header := headerContent
-	if strings.HasPrefix(headerContent, m.header) {
-		header = m.headerStyle.Render(m.header) + headerContent[len(m.header):]
+	headerLeft, headerRight := m.renderHeaderContent()
+	header := m.headerStyle.Render(headerLeft)
+	if headerRight != "" {
+		header += " " + headerRight
 	}
 	footer := m.footerStyle.Render(m.help.View(m.keys))
 
@@ -402,13 +402,10 @@ func (m *Model) switchEntryView(delta int) {
 	m.refreshViewportContent()
 }
 
-func (m Model) renderHeaderContent() string {
+func (m Model) renderHeaderContent() (string, string) {
 	left := m.header
 	right := m.activeEntryViewName()
-	if right == "" {
-		return left
-	}
-	return left + " " + right
+	return left, right
 }
 
 func (m Model) activeEntryViewName() string {
