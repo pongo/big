@@ -335,3 +335,99 @@ func TestOpenUsesSelectedEntryFromActiveEntryView(t *testing.T) {
 		t.Fatalf("path action message path = %q, want %q", msg.path, wantPath)
 	}
 }
+
+func TestBuildEntryViewsGroupsAndOrdersViews(t *testing.T) {
+	entries := []scan.RootEntry{
+		{Name: "z-folder", Path: "z-folder", Kind: scan.EntryFolder, HasSize: true, Size: 300},
+		{Name: "a.JPG", Path: "a.JPG", Kind: scan.EntryFile, HasSize: true, Size: 200},
+		{Name: "x.bin", Path: "x.bin", Kind: scan.EntryFile, HasSize: true, Size: 190},
+		{Name: "b.jpg", Path: "b.jpg", Kind: scan.EntryFile, HasSize: true, Size: 180},
+		{Name: ".env", Path: ".env", Kind: scan.EntryFile, HasSize: true, Size: 170},
+		{Name: "c.Jpg", Path: "c.Jpg", Kind: scan.EntryFile, HasSize: true, Size: 160},
+		{Name: "d.TXT", Path: "d.TXT", Kind: scan.EntryFile, HasSize: true, Size: 150},
+		{Name: "e.txt", Path: "e.txt", Kind: scan.EntryFile, HasSize: true, Size: 140},
+		{Name: "f.TxT", Path: "f.TxT", Kind: scan.EntryFile, HasSize: true, Size: 130},
+		{Name: "link", Path: "link", Kind: scan.EntryOther},
+		{Name: "g.md", Path: "g.md", Kind: scan.EntryFile, HasSize: true, Size: 120},
+		{Name: "h.tar.gz", Path: "h.tar.gz", Kind: scan.EntryFile, HasSize: true, Size: 110},
+	}
+
+	views := buildEntryViews(entries)
+	gotNames := make([]string, 0, len(views))
+	for _, view := range views {
+		gotNames = append(gotNames, view.name)
+	}
+	wantNames := []string{"Folders", ".jpg", ".txt", "Other"}
+	if !equalStrings(gotNames, wantNames) {
+		t.Fatalf("view names = %#v, want %#v", gotNames, wantNames)
+	}
+
+	if got := namesFromEntries(views[0].entries); !equalStrings(got, []string{"z-folder"}) {
+		t.Fatalf("Folders entries = %#v, want %#v", got, []string{"z-folder"})
+	}
+	if got := namesFromEntries(views[1].entries); !equalStrings(got, []string{"a.JPG", "b.jpg", "c.Jpg"}) {
+		t.Fatalf(".jpg entries = %#v, want %#v", got, []string{"a.JPG", "b.jpg", "c.Jpg"})
+	}
+	if got := namesFromEntries(views[2].entries); !equalStrings(got, []string{"d.TXT", "e.txt", "f.TxT"}) {
+		t.Fatalf(".txt entries = %#v, want %#v", got, []string{"d.TXT", "e.txt", "f.TxT"})
+	}
+	if got := namesFromEntries(views[3].entries); !equalStrings(got, []string{"x.bin", ".env", "link", "g.md", "h.tar.gz"}) {
+		t.Fatalf("Other entries = %#v, want %#v", got, []string{"x.bin", ".env", "link", "g.md", "h.tar.gz"})
+	}
+}
+
+func TestBuildEntryViewsOmitsEmptyViews(t *testing.T) {
+	entries := []scan.RootEntry{
+		{Name: "a.txt", Path: "a.txt", Kind: scan.EntryFile, HasSize: true, Size: 10},
+		{Name: "b.txt", Path: "b.txt", Kind: scan.EntryFile, HasSize: true, Size: 9},
+	}
+
+	views := buildEntryViews(entries)
+	if len(views) != 1 {
+		t.Fatalf("views len = %d, want %d", len(views), 1)
+	}
+	if views[0].name != "Other" {
+		t.Fatalf("single view name = %q, want %q", views[0].name, "Other")
+	}
+}
+
+func TestBuildEntryViewsOrdersExtensionTiesByName(t *testing.T) {
+	entries := []scan.RootEntry{
+		{Name: "a.zzz", Path: "a.zzz", Kind: scan.EntryFile, HasSize: true, Size: 30},
+		{Name: "a.aaa", Path: "a.aaa", Kind: scan.EntryFile, HasSize: true, Size: 29},
+		{Name: "b.zzz", Path: "b.zzz", Kind: scan.EntryFile, HasSize: true, Size: 28},
+		{Name: "b.aaa", Path: "b.aaa", Kind: scan.EntryFile, HasSize: true, Size: 27},
+		{Name: "c.zzz", Path: "c.zzz", Kind: scan.EntryFile, HasSize: true, Size: 26},
+		{Name: "c.aaa", Path: "c.aaa", Kind: scan.EntryFile, HasSize: true, Size: 25},
+	}
+
+	views := buildEntryViews(entries)
+	gotNames := make([]string, 0, len(views))
+	for _, view := range views {
+		gotNames = append(gotNames, view.name)
+	}
+	wantNames := []string{".aaa", ".zzz"}
+	if !equalStrings(gotNames, wantNames) {
+		t.Fatalf("view names = %#v, want %#v", gotNames, wantNames)
+	}
+}
+
+func namesFromEntries(entries []scan.RootEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name)
+	}
+	return names
+}
+
+func equalStrings(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for idx := range left {
+		if left[idx] != right[idx] {
+			return false
+		}
+	}
+	return true
+}

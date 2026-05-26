@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	pathfs "big/internal/fs"
@@ -120,7 +121,7 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 	model := Model{
 		rootPath:   rootPath,
 		header:     scanRootHeader(rootPath),
-		entryViews: buildCompatibilityEntryViews(entries),
+		entryViews: buildEntryViews(entries),
 
 		sizeWidth: sizeWidth,
 		selected:  0,
@@ -392,16 +393,78 @@ func (m Model) activeEntries() []scan.RootEntry {
 	return m.entryViews[m.selectedEntryView].entries
 }
 
-func buildCompatibilityEntryViews(entries []scan.RootEntry) []entryView {
+func buildEntryViews(entries []scan.RootEntry) []entryView {
 	if len(entries) == 0 {
 		return nil
 	}
-	return []entryView{
-		{
-			name:    "All",
-			entries: entries,
-		},
+
+	extensionCounts := make(map[string]int)
+	for _, entry := range entries {
+		if entry.Kind != scan.EntryFile {
+			continue
+		}
+		ext := normalizedExtension(entry.Name)
+		if ext == "" {
+			continue
+		}
+		extensionCounts[ext]++
 	}
+
+	folders := make([]scan.RootEntry, 0)
+	other := make([]scan.RootEntry, 0)
+	extensionEntries := make(map[string][]scan.RootEntry)
+	for _, entry := range entries {
+		switch entry.Kind {
+		case scan.EntryFolder:
+			folders = append(folders, entry)
+		case scan.EntryFile:
+			ext := normalizedExtension(entry.Name)
+			if ext == "" || extensionCounts[ext] < 3 {
+				other = append(other, entry)
+				continue
+			}
+			extensionEntries[ext] = append(extensionEntries[ext], entry)
+		default:
+			other = append(other, entry)
+		}
+	}
+
+	views := make([]entryView, 0, len(extensionEntries)+2)
+	if len(folders) > 0 {
+		views = append(views, entryView{name: "Folders", entries: folders})
+	}
+
+	extensionNames := make([]string, 0, len(extensionEntries))
+	for name := range extensionEntries {
+		extensionNames = append(extensionNames, name)
+	}
+	sort.Slice(extensionNames, func(i, j int) bool {
+		left := extensionNames[i]
+		right := extensionNames[j]
+		leftCount := extensionCounts[left]
+		rightCount := extensionCounts[right]
+		if leftCount != rightCount {
+			return leftCount > rightCount
+		}
+		return left < right
+	})
+	for _, name := range extensionNames {
+		views = append(views, entryView{name: name, entries: extensionEntries[name]})
+	}
+
+	if len(other) > 0 {
+		views = append(views, entryView{name: "Other", entries: other})
+	}
+
+	return views
+}
+
+func normalizedExtension(name string) string {
+	ext := filepath.Ext(name)
+	if ext == "" {
+		return ""
+	}
+	return strings.ToLower(ext)
 }
 
 func (m Model) entryPath(entry scan.RootEntry) string {
