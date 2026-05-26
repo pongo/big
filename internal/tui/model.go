@@ -270,7 +270,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	header := m.headerStyle.Render(m.renderHeaderContent())
+	headerContent := m.renderHeaderContent()
+	header := headerContent
+	if strings.HasPrefix(headerContent, m.header) {
+		header = m.headerStyle.Render(m.header) + headerContent[len(m.header):]
+	}
 	footer := m.footerStyle.Render(m.help.View(m.keys))
 
 	var content string
@@ -433,24 +437,7 @@ func (m Model) renderHeaderContent() string {
 	if right == "" {
 		return left
 	}
-
-	if m.width <= 0 {
-		return left
-	}
-
-	totalWidth := m.width - 2
-	if totalWidth <= 0 {
-		return left
-	}
-
-	leftWidth := lipgloss.Width(left)
-	rightWidth := lipgloss.Width(right)
-	if leftWidth+1+rightWidth > totalWidth {
-		return left
-	}
-
-	padding := strings.Repeat(" ", totalWidth-leftWidth-rightWidth)
-	return left + padding + right
+	return left + " " + right
 }
 
 func (m Model) activeEntryViewName() string {
