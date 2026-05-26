@@ -1,6 +1,11 @@
 - в конце Implementation Plan пиши однострочный текст для git commit (Conventional Commits) на английском. Коммитить я буду сам.
 - комментарии в коде пиши на английском языке.
 
+## Build and test
+
+- Build the CLI with `go build ./cmd/big`
+- Run all tests with `go test ./...`
+
 ## Agent skills
 
 ### Issue tracker
