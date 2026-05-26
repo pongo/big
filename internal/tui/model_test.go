@@ -411,7 +411,7 @@ func TestBuildEntryViewsGroupsAndOrdersViews(t *testing.T) {
 	for _, view := range views {
 		gotNames = append(gotNames, view.name)
 	}
-	wantNames := []string{"Folders", ".jpg", ".txt", "Other"}
+	wantNames := []string{"Folders", "Other"}
 	if !equalStrings(gotNames, wantNames) {
 		t.Fatalf("view names = %#v, want %#v", gotNames, wantNames)
 	}
@@ -419,14 +419,8 @@ func TestBuildEntryViewsGroupsAndOrdersViews(t *testing.T) {
 	if got := namesFromEntries(views[0].entries); !equalStrings(got, []string{"z-folder"}) {
 		t.Fatalf("Folders entries = %#v, want %#v", got, []string{"z-folder"})
 	}
-	if got := namesFromEntries(views[1].entries); !equalStrings(got, []string{"a.JPG", "b.jpg", "c.Jpg"}) {
-		t.Fatalf(".jpg entries = %#v, want %#v", got, []string{"a.JPG", "b.jpg", "c.Jpg"})
-	}
-	if got := namesFromEntries(views[2].entries); !equalStrings(got, []string{"d.TXT", "e.txt", "f.TxT"}) {
-		t.Fatalf(".txt entries = %#v, want %#v", got, []string{"d.TXT", "e.txt", "f.TxT"})
-	}
-	if got := namesFromEntries(views[3].entries); !equalStrings(got, []string{"x.bin", ".env", "link", "g.md", "h.tar.gz"}) {
-		t.Fatalf("Other entries = %#v, want %#v", got, []string{"x.bin", ".env", "link", "g.md", "h.tar.gz"})
+	if got := namesFromEntries(views[1].entries); !equalStrings(got, []string{"a.JPG", "x.bin", "b.jpg", ".env", "c.Jpg", "d.TXT", "e.txt", "f.TxT", "link", "g.md", "h.tar.gz"}) {
+		t.Fatalf("Other entries = %#v, want %#v", got, []string{"a.JPG", "x.bin", "b.jpg", ".env", "c.Jpg", "d.TXT", "e.txt", "f.TxT", "link", "g.md", "h.tar.gz"})
 	}
 }
 
@@ -453,6 +447,10 @@ func TestBuildEntryViewsOrdersExtensionTiesByName(t *testing.T) {
 		{Name: "b.aaa", Path: "b.aaa", Kind: scan.EntryFile, HasSize: true, Size: 27},
 		{Name: "c.zzz", Path: "c.zzz", Kind: scan.EntryFile, HasSize: true, Size: 26},
 		{Name: "c.aaa", Path: "c.aaa", Kind: scan.EntryFile, HasSize: true, Size: 25},
+		{Name: "d.zzz", Path: "d.zzz", Kind: scan.EntryFile, HasSize: true, Size: 24},
+		{Name: "d.aaa", Path: "d.aaa", Kind: scan.EntryFile, HasSize: true, Size: 23},
+		{Name: "e.zzz", Path: "e.zzz", Kind: scan.EntryFile, HasSize: true, Size: 22},
+		{Name: "e.aaa", Path: "e.aaa", Kind: scan.EntryFile, HasSize: true, Size: 21},
 	}
 
 	views := buildEntryViews(entries)
@@ -519,8 +517,8 @@ func TestHeaderRendersActiveEntryViewNameRightAligned(t *testing.T) {
 	if !strings.HasPrefix(header, "root") {
 		t.Fatalf("header %q does not start with %q", header, "root")
 	}
-	if !strings.HasSuffix(header, ".txt") {
-		t.Fatalf("header %q does not end with %q", header, ".txt")
+	if !strings.HasSuffix(header, "Other") {
+		t.Fatalf("header %q does not end with %q", header, "Other")
 	}
 
 	model.entryViews = append([]entryView{{name: "Folders", entries: nil}}, model.entryViews...)
@@ -529,8 +527,8 @@ func TestHeaderRendersActiveEntryViewNameRightAligned(t *testing.T) {
 	if !strings.HasPrefix(header, "root") {
 		t.Fatalf("header %q does not start with %q", header, "root")
 	}
-	if !strings.HasSuffix(header, ".txt") {
-		t.Fatalf("header %q does not end with %q", header, ".txt")
+	if !strings.HasSuffix(header, "Other") {
+		t.Fatalf("header %q does not end with %q", header, "Other")
 	}
 }
 
