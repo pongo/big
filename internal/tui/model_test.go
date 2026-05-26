@@ -510,6 +510,25 @@ func TestDeleteInNonFirstEntryViewMarksTrashedInThatView(t *testing.T) {
 	}
 }
 
+func TestViewportHidesSizeForEntriesBelowOneMiB(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "small.txt", Path: "small.txt", Kind: scan.EntryFile, HasSize: true, Size: 900 * 1024},
+		{Name: "large.txt", Path: "large.txt", Kind: scan.EntryFile, HasSize: true, Size: 2 * 1024 * 1024},
+	})
+	model.width = 80
+	model.height = 10
+	model.resize()
+	model.refreshViewportContent()
+
+	view := model.viewport.View()
+	if strings.Contains(view, "900 KB") {
+		t.Fatalf("view should hide size below 1 MiB, got %q", view)
+	}
+	if !strings.Contains(view, "2 MB") {
+		t.Fatalf("view should render size at or above 1 MiB, got %q", view)
+	}
+}
+
 func namesFromEntries(entries []scan.RootEntry) []string {
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
