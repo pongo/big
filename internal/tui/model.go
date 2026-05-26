@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"big/internal/scan"
@@ -47,6 +48,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 
 type Model struct {
 	rootPath string
+	header   string
 	entries  []scan.RootEntry
 
 	sizeWidth int
@@ -60,8 +62,11 @@ type Model struct {
 
 	headerStyle   lipgloss.Style
 	sizeStyle     lipgloss.Style
-	nameStyle     lipgloss.Style
+	fileStyle     lipgloss.Style
+	folderStyle   lipgloss.Style
+	linkStyle     lipgloss.Style
 	selectedStyle lipgloss.Style
+	selectedName  lipgloss.Style
 	footerStyle   lipgloss.Style
 }
 
@@ -82,6 +87,7 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 
 	model := Model{
 		rootPath: rootPath,
+		header:   scanRootHeader(rootPath),
 		entries:  entries,
 
 		sizeWidth: sizeWidth,
@@ -93,18 +99,27 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 
 		headerStyle: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("15")),
-		sizeStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("12")),
-		nameStyle: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")),
-		selectedStyle: lipgloss.NewStyle().
-			Bold(true).
-			Background(lipgloss.Color("24")).
 			Foreground(lipgloss.Color("255")),
+		sizeStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250")),
+		fileStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")),
+		folderStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("153")),
+		linkStyle: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("109")),
+		selectedStyle: lipgloss.NewStyle().
+			Background(lipgloss.Color("238")),
+		selectedName: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("170")),
 		footerStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244")),
 	}
+	model.help.Styles.ShortKey = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	model.help.Styles.ShortDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	model.help.Styles.FullKey = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	model.help.Styles.FullDesc = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	model.help.Styles.Ellipsis = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
 	model.refreshViewportContent()
 	return model
 }
@@ -164,7 +179,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	header := m.headerStyle.Render(fmt.Sprintf("Big - %s", m.rootPath))
+	header := m.headerStyle.Render(fmt.Sprintf("Big - %s", m.header))
 	footer := m.footerStyle.Render(m.help.View(m.keys))
 
 	var content string
@@ -228,15 +243,24 @@ func (m *Model) refreshViewportContent() {
 	for idx, entry := range m.entries {
 		sizeCell := strings.Repeat(" ", m.sizeWidth)
 		if entry.HasSize {
-			sizeCell = fmt.Sprintf("%*s", m.sizeWidth, scan.FormatSize(entry.Size))
+			sizeCell = lipgloss.NewStyle().Width(m.sizeWidth).Align(lipgloss.Right).Render(scan.FormatSize(entry.Size))
 		}
 
 		name := entry.Name
 		if entry.LinkTarget != "" {
 			name = fmt.Sprintf("%s -> %s", entry.Name, entry.LinkTarget)
 		}
-
-		row := fmt.Sprintf("%s  %s", m.sizeStyle.Render(sizeCell), m.nameStyle.Render(name))
+		nameStyle := m.fileStyle
+		switch entry.Kind {
+		case scan.EntryFolder:
+			nameStyle = m.folderStyle
+		case scan.EntryOther:
+			nameStyle = m.linkStyle
+		}
+		if idx == m.selected {
+			nameStyle = m.selectedName.Inherit(nameStyle)
+		}
+		row := fmt.Sprintf("%s  %s", m.sizeStyle.Render(sizeCell), nameStyle.Render(name))
 		if idx == m.selected {
 			row = m.selectedStyle.Render(row)
 		}
@@ -251,4 +275,13 @@ func max(left int, right int) int {
 		return left
 	}
 	return right
+}
+
+func scanRootHeader(rootPath string) string {
+	cleaned := filepath.Clean(rootPath)
+	base := filepath.Base(cleaned)
+	if base == "." || base == string(filepath.Separator) || strings.HasSuffix(base, ":\\") {
+		return cleaned
+	}
+	return base
 }
