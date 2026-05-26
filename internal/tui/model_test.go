@@ -254,6 +254,31 @@ func TestDeleteFailureKeepsSelectionAndUntrashed(t *testing.T) {
 	}
 }
 
+func TestDeleteFailureRollsBackOptimisticTrashedState(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	model.trashPath = func(path string) error {
+		return errors.New("trash unavailable")
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	got := updated.(Model)
+	path := got.selectedEntryPath()
+	if !got.isTrashed(path) {
+		t.Fatalf("path %q is not optimistically marked as trashed", path)
+	}
+
+	updated, _ = got.Update(cmd())
+	got = updated.(Model)
+	if got.isTrashed(path) {
+		t.Fatalf("path %q should not stay trashed after delete failure", path)
+	}
+	if got.status != "Delete failed: trash unavailable" {
+		t.Fatalf("status = %q, want %q", got.status, "Delete failed: trash unavailable")
+	}
+}
+
 func TestDeleteOnAlreadyTrashedRowDoesNotInvokeAction(t *testing.T) {
 	model := NewModel("root", []scan.RootEntry{
 		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
@@ -272,6 +297,34 @@ func TestDeleteOnAlreadyTrashedRowDoesNotInvokeAction(t *testing.T) {
 	}
 	if called {
 		t.Fatal("trash action was called for already trashed row")
+	}
+}
+
+func TestRapidDeleteOnSameRowDoesNotInvokeActionTwice(t *testing.T) {
+	model := NewModel("root", []scan.RootEntry{
+		{Name: "first.txt", Path: filepath.Join("root", "first.txt"), Kind: scan.EntryFile, HasSize: true},
+		{Name: "second.txt", Path: filepath.Join("root", "second.txt"), Kind: scan.EntryFile, HasSize: true},
+	})
+	model.selected = 0
+	calls := 0
+	model.trashPath = func(path string) error {
+		calls++
+		return nil
+	}
+
+	updated, firstCmd := model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	if firstCmd == nil {
+		t.Fatal("first Update returned nil command")
+	}
+
+	_, secondCmd := updated.(Model).Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
+	if secondCmd != nil {
+		t.Fatal("second Update returned non-nil command while delete was in flight")
+	}
+
+	firstCmd()
+	if calls != 1 {
+		t.Fatalf("trash action calls = %d, want 1", calls)
 	}
 }
 

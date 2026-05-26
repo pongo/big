@@ -238,6 +238,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.isTrashed(path) {
 				return m, nil
 			}
+			m.trashedPaths[path] = struct{}{}
+			m.refreshViewportContent()
 			return m, m.runPathAction("Delete", m.trashPath)
 		}
 	case pathActionFinishedMsg:
@@ -252,6 +254,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.clearStatus()
 			return m, nil
+		}
+		if typed.verb == "Delete" {
+			delete(m.trashedPaths, typed.path)
+			m.refreshViewportContent()
 		}
 		m.status = fmt.Sprintf("%s failed: %v", typed.verb, typed.err)
 		m.resize()
