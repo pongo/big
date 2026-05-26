@@ -98,7 +98,7 @@ func NewModel(rootPath string, entries []scan.RootEntry) Model {
 		keys:     keys,
 
 		headerStyle: lipgloss.NewStyle().
-			Bold(true).
+			Background(lipgloss.Color("170")).Padding(0, 1).
 			Foreground(lipgloss.Color("255")),
 		sizeStyle: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("250")),
