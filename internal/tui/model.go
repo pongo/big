@@ -487,7 +487,7 @@ func buildEntryViews(entries []scan.RootEntry) []entryView {
 			folders = append(folders, entry)
 		case scan.EntryFile:
 			ext := normalizedExtension(entry.Name)
-			if ext == "" || extensionCounts[ext] < 3 {
+			if ext == "" || extensionCounts[ext] < 5 {
 				other = append(other, entry)
 				continue
 			}
