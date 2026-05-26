@@ -36,11 +36,17 @@ func run(args []string) int {
 		tui.NewModel(root, entries),
 	)
 	if _, err = program.Run(); err != nil {
+		clearTerminalScreen()
 		fmt.Fprintf(os.Stderr, "tui error: %v\n", err)
 		return 1
 	}
+	clearTerminalScreen()
 
 	return 0
+}
+
+func clearTerminalScreen() {
+	fmt.Fprint(os.Stdout, "\x1b[2J\x1b[H")
 }
 
 func printScanError(err error) {
