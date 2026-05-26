@@ -3,7 +3,9 @@ package scan
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -71,10 +73,110 @@ func TestHiddenRootFilesAreNotExcluded(t *testing.T) {
 	}
 }
 
+func TestLinksAreAfterSizedEntriesAndSortedByName(t *testing.T) {
+	fsys := newFakeFS()
+	fsys.addDir("root")
+	fsys.addFile(filepath.Join("root", "big.dat"), 100)
+	fsys.addSymlink(filepath.Join("root", "z-link"), "C:\\target-z")
+	fsys.addSymlink(filepath.Join("root", "a-link"), "C:\\target-a")
+
+	scanner := NewScanner(fsys)
+	entries, err := scanner.ScanRoot("root")
+	if err != nil {
+		t.Fatalf("ScanRoot returned error: %v", err)
+	}
+
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 root entries, got %d", len(entries))
+	}
+
+	if entries[0].Name != "big.dat" || !entries[0].HasSize {
+		t.Fatalf("expected first entry to be sized file, got %+v", entries[0])
+	}
+	if entries[1].Name != "a-link" || entries[1].HasSize {
+		t.Fatalf("expected second entry to be no-size link a-link, got %+v", entries[1])
+	}
+	if entries[2].Name != "z-link" || entries[2].HasSize {
+		t.Fatalf("expected third entry to be no-size link z-link, got %+v", entries[2])
+	}
+	if entries[1].LinkTarget != "C:\\target-a" {
+		t.Fatalf("unexpected link target for a-link: %q", entries[1].LinkTarget)
+	}
+}
+
+func TestUnreadableNestedContentsDoNotContributeSize(t *testing.T) {
+	fsys := newFakeFS()
+	fsys.addDir("root")
+	fsys.addDir(filepath.Join("root", "folder"))
+	fsys.addFile(filepath.Join("root", "folder", "ok.txt"), 10)
+	fsys.addDir(filepath.Join("root", "folder", "blocked"))
+	fsys.addFile(filepath.Join("root", "folder", "blocked", "nope.txt"), 1000)
+	fsys.readDirErr[filepath.Join("root", "folder", "blocked")] = fs.ErrPermission
+
+	scanner := NewScanner(fsys)
+	entries, err := scanner.ScanRoot("root")
+	if err != nil {
+		t.Fatalf("ScanRoot returned error: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 root entry, got %d", len(entries))
+	}
+	if entries[0].Size != 10 {
+		t.Fatalf("unexpected folder size: got %d want %d", entries[0].Size, 10)
+	}
+}
+
+func TestRealSymlinkShownWithoutSizeAndNotFollowed(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-specific symlink/junction behavior")
+	}
+
+	tempDir := t.TempDir()
+	root := filepath.Join(tempDir, "root")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+
+	targetFile := filepath.Join(root, "target.txt")
+	if err := os.WriteFile(targetFile, []byte("0123456789"), 0o644); err != nil {
+		t.Fatalf("write target file: %v", err)
+	}
+
+	linkPath := filepath.Join(root, "link.txt")
+	if err := os.Symlink(targetFile, linkPath); err != nil {
+		t.Skipf("os does not allow creating symlink in this environment: %v", err)
+	}
+
+	scanner := NewScanner(nil)
+	entries, err := scanner.ScanRoot(root)
+	if err != nil {
+		t.Fatalf("ScanRoot returned error: %v", err)
+	}
+
+	var linkEntry *RootEntry
+	for idx := range entries {
+		if entries[idx].Name == "link.txt" {
+			linkEntry = &entries[idx]
+			break
+		}
+	}
+	if linkEntry == nil {
+		t.Fatalf("expected symlink root entry to be present")
+	}
+	if linkEntry.HasSize {
+		t.Fatalf("symlink must not have size")
+	}
+	if linkEntry.LinkTarget == "" {
+		t.Fatalf("symlink target should be rendered when readable")
+	}
+}
+
 type fakeFS struct {
 	infos       map[string]fs.FileInfo
 	dirChildren map[string][]string
 	readDirErr  map[string]error
+	readlinkMap map[string]string
 }
 
 func newFakeFS() *fakeFS {
@@ -82,6 +184,7 @@ func newFakeFS() *fakeFS {
 		infos:       map[string]fs.FileInfo{},
 		dirChildren: map[string][]string{},
 		readDirErr:  map[string]error{},
+		readlinkMap: map[string]string{},
 	}
 }
 
@@ -101,6 +204,13 @@ func (f *fakeFS) addDir(path string) {
 
 func (f *fakeFS) addFile(path string, size int64) {
 	f.infos[path] = fakeFileInfo{name: filepath.Base(path), size: size}
+	parent := filepath.Dir(path)
+	f.dirChildren[parent] = append(f.dirChildren[parent], filepath.Base(path))
+}
+
+func (f *fakeFS) addSymlink(path string, target string) {
+	f.infos[path] = fakeFileInfo{name: filepath.Base(path), mode: fs.ModeSymlink}
+	f.readlinkMap[path] = target
 	parent := filepath.Dir(path)
 	f.dirChildren[parent] = append(f.dirChildren[parent], filepath.Base(path))
 }
@@ -129,6 +239,14 @@ func (f *fakeFS) ReadDir(name string) ([]fs.DirEntry, error) {
 		out = append(out, fakeDirEntry{info: info})
 	}
 	return out, nil
+}
+
+func (f *fakeFS) Readlink(name string) (string, error) {
+	target, ok := f.readlinkMap[name]
+	if !ok {
+		return "", fs.ErrNotExist
+	}
+	return target, nil
 }
 
 type fakeFileInfo struct {

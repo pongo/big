@@ -23,16 +23,18 @@ const (
 )
 
 type RootEntry struct {
-	Name    string
-	Path    string
-	Kind    EntryKind
-	HasSize bool
-	Size    int64
+	Name       string
+	Path       string
+	Kind       EntryKind
+	HasSize    bool
+	Size       int64
+	LinkTarget string
 }
 
 type FS interface {
 	Lstat(name string) (fs.FileInfo, error)
 	ReadDir(name string) ([]fs.DirEntry, error)
+	Readlink(name string) (string, error)
 }
 
 type Scanner struct {
@@ -80,6 +82,12 @@ func (s *Scanner) ScanRoot(root string) ([]RootEntry, error) {
 		}
 
 		switch {
+		case entryInfo.Mode()&fs.ModeSymlink != 0:
+			rootEntry.Kind = EntryOther
+			target, targetErr := s.fsys.Readlink(fullPath)
+			if targetErr == nil {
+				rootEntry.LinkTarget = target
+			}
 		case entryInfo.Mode().IsRegular():
 			rootEntry.Kind = EntryFile
 			rootEntry.HasSize = true
@@ -149,4 +157,8 @@ func (osFS) Lstat(name string) (fs.FileInfo, error) {
 
 func (osFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return os.ReadDir(name)
+}
+
+func (osFS) Readlink(name string) (string, error) {
+	return os.Readlink(name)
 }

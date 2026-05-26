@@ -76,7 +76,11 @@ func (m Model) View() tea.View {
 		if entry.HasSize {
 			sizeCell = fmt.Sprintf("%*s", m.sizeWidth, scan.FormatSize(entry.Size))
 		}
-		row := fmt.Sprintf("%s  %s", m.sizeStyle.Render(sizeCell), m.nameStyle.Render(entry.Name))
+		name := entry.Name
+		if entry.LinkTarget != "" {
+			name = fmt.Sprintf("%s -> %s", entry.Name, entry.LinkTarget)
+		}
+		row := fmt.Sprintf("%s  %s", m.sizeStyle.Render(sizeCell), m.nameStyle.Render(name))
 		b.WriteString(row)
 		b.WriteString("\n")
 	}
