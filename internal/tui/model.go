@@ -386,7 +386,13 @@ func (m *Model) refreshViewportContent() {
 		if isSelected {
 			nameStyle = m.selectedName.Inherit(nameStyle)
 		}
-		row := fmt.Sprintf("%s  %s", sizeStyle.Render(sizeCell), nameStyle.Render(name))
+
+		renderedName := nameStyle.Render(name)
+		if isTrashed {
+			renderedName += m.trashedStyle.Render(" [deleted]")
+		}
+
+		row := fmt.Sprintf("%s  %s", sizeStyle.Render(sizeCell), renderedName)
 		lines = append(lines, row)
 	}
 
