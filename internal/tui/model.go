@@ -443,6 +443,7 @@ func max(left int, right int) int {
 }
 
 func scanRootHeader(rootPath string) string {
+	rootPath = scan.NormalizeRoot(rootPath)
 	cleaned := filepath.Clean(rootPath)
 	if cleaned == "." {
 		wd, err := os.Getwd()

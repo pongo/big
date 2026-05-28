@@ -51,6 +51,14 @@ func TestScanRootHeaderUsesPathBaseForExplicitPath(t *testing.T) {
 	}
 }
 
+func TestScanRootHeaderTrimsCommandLineQuotes(t *testing.T) {
+	root := filepath.Join("parent", "Telegram Desktop2") + `"`
+
+	if got := scanRootHeader(root); got != "Telegram Desktop2" {
+		t.Fatalf("scanRootHeader(%q) = %q, want %q", root, got, "Telegram Desktop2")
+	}
+}
+
 func TestEnterOpensSelectedRootEntry(t *testing.T) {
 	path := filepath.Join("root", "Утиный Тест-2.ogg")
 	wantPath, err := filepath.Abs(path)

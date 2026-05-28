@@ -22,7 +22,7 @@ func run(args []string) int {
 
 	root := "."
 	if len(args) == 1 {
-		root = args[0]
+		root = scan.NormalizeRoot(args[0])
 	}
 
 	scanner := scan.NewScanner(nil)

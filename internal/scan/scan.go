@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 var (
@@ -74,6 +75,7 @@ func NewScanner(fsys FS) *Scanner {
 }
 
 func (s *Scanner) ScanRoot(root string) ([]RootEntry, error) {
+	root = NormalizeRoot(root)
 	root = filepath.Clean(root)
 
 	info, err := s.fsys.Lstat(root)
@@ -176,6 +178,11 @@ func SortRootEntries(entries []RootEntry) {
 
 		return left.Name < right.Name
 	})
+}
+
+// NormalizeRoot removes shell quote artifacts from a scan root argument.
+func NormalizeRoot(root string) string {
+	return strings.Trim(root, `"`)
 }
 
 type osFS struct{}
