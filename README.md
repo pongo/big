@@ -24,6 +24,8 @@ If `path` is omitted, big scans the current directory.
 
 ⚠️ Large folders can take time to scan. Press `ctrl+c` to stop the scan.
 
+Use ←/→ to switch between file groups.
+
 ## Controls
 
 - `up` / `down`: move selection
