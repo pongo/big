@@ -4,6 +4,8 @@ big is a terminal utility for finding the largest immediate entries inside a fol
 
 It scans directory and ranks its direct files and folders by size.
 
+<img width="500" alt="big" src="https://github.com/user-attachments/assets/d344b1f1-b64f-4773-a6cf-e92328dd8ac3" />
+
 ## Views
 
 - Groups entries into views such as folders, common file extensions, and other entries.
