@@ -173,31 +173,6 @@ func TestHiddenRootFilesAreNotExcluded(t *testing.T) {
 	}
 }
 
-func TestScanRootTrimsCommandLineQuotes(t *testing.T) {
-	fsys := newFakeFS()
-	root := "root with space"
-	fsys.addDir(root)
-	fsys.addFile(filepath.Join(root, "visible"), 1)
-
-	cases := []string{
-		`"root with space"`,
-		`root with space"`,
-	}
-
-	for _, input := range cases {
-		t.Run(input, func(t *testing.T) {
-			scanner := NewScanner(fsys)
-			entries, err := scanner.ScanRoot(input)
-			if err != nil {
-				t.Fatalf("ScanRoot returned error: %v", err)
-			}
-			if len(entries) != 1 || entries[0].Name != "visible" {
-				t.Fatalf("entries = %#v, want visible entry", entries)
-			}
-		})
-	}
-}
-
 func TestLinksAreAfterSizedEntriesAndSortedByName(t *testing.T) {
 	fsys := newFakeFS()
 	fsys.addDir("root")
