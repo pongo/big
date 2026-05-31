@@ -2,17 +2,13 @@
 
 big is a terminal utility for finding the largest immediate entries inside a folder.
 
-It scans one directory, ranks its direct files and folders by size, and opens an interactive terminal view for navigation and cleanup.
+It scans directory and ranks its direct files and folders by size.
 
-## Features
+## Views
 
-- Shows direct files and folders under the scan root.
-- Counts folder size recursively without listing nested files.
-- Sorts entries under 1 MiB alphabetically and shows them without a size.
 - Groups entries into views such as folders, common file extensions, and other entries.
-- Opens or reveals the selected entry from the terminal.
-- Moves selected entries to the operating system trash.
-- Leaves symlinks and special entries unscanned.
+- Sorts entries under 1 MiB alphabetically and shows them without a size.
+- Use ←/→ to switch between groups.
 
 ## Usage
 
@@ -23,8 +19,6 @@ big [path]
 If `path` is omitted, big scans the current directory.
 
 ⚠️ Large folders can take time to scan. Press `ctrl+c` to stop the scan.
-
-Use ←/→ to switch between file groups.
 
 ## Controls
 
