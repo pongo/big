@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
 var (
@@ -63,7 +64,9 @@ type FS interface {
 }
 
 type Scanner struct {
-	fsys FS
+	fsys       FS
+	MinAgeDays int
+	Now        func() time.Time
 }
 
 func NewScanner(fsys FS) *Scanner {
@@ -92,6 +95,12 @@ func (s *Scanner) ScanRoot(root string) ([]RootEntry, error) {
 		return nil, fmt.Errorf("failed to list scan root %q: %w", root, err)
 	}
 
+	now := time.Now
+	if s.Now != nil {
+		now = s.Now
+	}
+	boundary := now().AddDate(0, 0, -s.MinAgeDays)
+
 	out := make([]RootEntry, 0, len(entries))
 	for _, entry := range entries {
 		fullPath := filepath.Join(root, entry.Name())
@@ -106,6 +115,7 @@ func (s *Scanner) ScanRoot(root string) ([]RootEntry, error) {
 			Path: fullPath,
 		}
 
+		ageTime := entryInfo.ModTime()
 		switch {
 		case entryInfo.Mode()&fs.ModeSymlink != 0:
 			rootEntry.Kind = EntryOther
@@ -119,6 +129,12 @@ func (s *Scanner) ScanRoot(root string) ([]RootEntry, error) {
 			rootEntry.Size = entryInfo.Size()
 		case entryInfo.IsDir():
 			rootEntry.Kind = EntryFolder
+			if created, ok := s.creationTime(fullPath, entryInfo); ok {
+				ageTime = created
+			}
+			if !s.includesAge(ageTime, boundary) {
+				continue
+			}
 			rootEntry.HasSize = true
 			rootEntry.Size = s.dirSize(fullPath)
 		default:
@@ -126,11 +142,29 @@ func (s *Scanner) ScanRoot(root string) ([]RootEntry, error) {
 			rootEntry.Kind = EntryOther
 		}
 
+		if rootEntry.Kind != EntryFolder && !s.includesAge(ageTime, boundary) {
+			continue
+		}
+
 		out = append(out, rootEntry)
 	}
 
 	SortRootEntries(out)
 	return out, nil
+}
+
+func (s *Scanner) includesAge(ageTime time.Time, boundary time.Time) bool {
+	return s.MinAgeDays == 0 || !ageTime.After(boundary)
+}
+
+func (s *Scanner) creationTime(path string, info fs.FileInfo) (time.Time, bool) {
+	fsys, ok := s.fsys.(interface {
+		CreationTime(string, fs.FileInfo) (time.Time, bool)
+	})
+	if !ok {
+		return time.Time{}, false
+	}
+	return fsys.CreationTime(path, info)
 }
 
 func (s *Scanner) dirSize(path string) int64 {

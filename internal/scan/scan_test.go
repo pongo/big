@@ -227,6 +227,90 @@ func TestUnreadableNestedContentsDoNotContributeSize(t *testing.T) {
 	}
 }
 
+func TestAgeFilterUsesCalendarDayBoundaryForFiles(t *testing.T) {
+	now := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
+	fsys := newFakeFS()
+	fsys.addDir("root")
+	fsys.addFileWithModTime(filepath.Join("root", "old.txt"), 1, now.Add(-30*24*time.Hour))
+	fsys.addFileWithModTime(filepath.Join("root", "new.txt"), 1, now.Add(-30*24*time.Hour+time.Second))
+
+	scanner := NewScanner(fsys)
+	scanner.MinAgeDays = 30
+	scanner.Now = func() time.Time { return now }
+	entries, err := scanner.ScanRoot("root")
+	if err != nil {
+		t.Fatalf("ScanRoot returned error: %v", err)
+	}
+
+	if len(entries) != 1 || entries[0].Name != "old.txt" {
+		t.Fatalf("age-filtered entries = %+v, want only old.txt", entries)
+	}
+}
+
+func TestAgeFilterUsesFolderCreationTimeWhenAvailable(t *testing.T) {
+	now := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
+	fsys := newFakeFS()
+	fsys.addDir("root")
+	fsys.addDirWithTimes(filepath.Join("root", "old-created"), now, now.Add(-30*24*time.Hour))
+	fsys.addFile(filepath.Join("root", "old-created", "a.txt"), 1)
+	fsys.addDirWithTimes(filepath.Join("root", "new-created"), now.Add(-30*24*time.Hour), now)
+	fsys.addFile(filepath.Join("root", "new-created", "b.txt"), 1)
+
+	scanner := NewScanner(fsys)
+	scanner.MinAgeDays = 30
+	scanner.Now = func() time.Time { return now }
+	entries, err := scanner.ScanRoot("root")
+	if err != nil {
+		t.Fatalf("ScanRoot returned error: %v", err)
+	}
+
+	if len(entries) != 1 || entries[0].Name != "old-created" {
+		t.Fatalf("age-filtered folders = %+v, want only old-created", entries)
+	}
+}
+
+func TestAgeFilterFallsBackToFolderModifiedTime(t *testing.T) {
+	now := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
+	fsys := newFakeFS()
+	fsys.addDir("root")
+	fsys.addDirWithModTime(filepath.Join("root", "old-folder"), now.Add(-30*24*time.Hour))
+	fsys.addFile(filepath.Join("root", "old-folder", "a.txt"), 1)
+	fsys.addDirWithModTime(filepath.Join("root", "new-folder"), now)
+	fsys.addFile(filepath.Join("root", "new-folder", "b.txt"), 1)
+
+	scanner := NewScanner(fsys)
+	scanner.MinAgeDays = 30
+	scanner.Now = func() time.Time { return now }
+	entries, err := scanner.ScanRoot("root")
+	if err != nil {
+		t.Fatalf("ScanRoot returned error: %v", err)
+	}
+
+	if len(entries) != 1 || entries[0].Name != "old-folder" {
+		t.Fatalf("age-filtered folders = %+v, want only old-folder", entries)
+	}
+}
+
+func TestAgeFilterUsesModifiedTimeForSymlinks(t *testing.T) {
+	now := time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC)
+	fsys := newFakeFS()
+	fsys.addDir("root")
+	fsys.addSymlinkWithModTime(filepath.Join("root", "old-link"), "C:\\target-old", now.Add(-30*24*time.Hour))
+	fsys.addSymlinkWithModTime(filepath.Join("root", "new-link"), "C:\\target-new", now)
+
+	scanner := NewScanner(fsys)
+	scanner.MinAgeDays = 30
+	scanner.Now = func() time.Time { return now }
+	entries, err := scanner.ScanRoot("root")
+	if err != nil {
+		t.Fatalf("ScanRoot returned error: %v", err)
+	}
+
+	if len(entries) != 1 || entries[0].Name != "old-link" {
+		t.Fatalf("age-filtered symlinks = %+v, want only old-link", entries)
+	}
+}
+
 func TestRealSymlinkShownWithoutSizeAndNotFollowed(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows-specific symlink/junction behavior")
@@ -273,18 +357,20 @@ func TestRealSymlinkShownWithoutSizeAndNotFollowed(t *testing.T) {
 }
 
 type fakeFS struct {
-	infos       map[string]fs.FileInfo
-	dirChildren map[string][]string
-	readDirErr  map[string]error
-	readlinkMap map[string]string
+	infos        map[string]fs.FileInfo
+	dirChildren  map[string][]string
+	readDirErr   map[string]error
+	readlinkMap  map[string]string
+	creationTime map[string]time.Time
 }
 
 func newFakeFS() *fakeFS {
 	return &fakeFS{
-		infos:       map[string]fs.FileInfo{},
-		dirChildren: map[string][]string{},
-		readDirErr:  map[string]error{},
-		readlinkMap: map[string]string{},
+		infos:        map[string]fs.FileInfo{},
+		dirChildren:  map[string][]string{},
+		readDirErr:   map[string]error{},
+		readlinkMap:  map[string]string{},
+		creationTime: map[string]time.Time{},
 	}
 }
 
@@ -302,14 +388,37 @@ func (f *fakeFS) addDir(path string) {
 	}
 }
 
+func (f *fakeFS) addDirWithModTime(path string, modTime time.Time) {
+	f.addDir(path)
+	f.infos[path] = fakeFileInfo{name: filepath.Base(path), mode: fs.ModeDir, modTime: modTime}
+}
+
+func (f *fakeFS) addDirWithTimes(path string, modTime time.Time, created time.Time) {
+	f.addDirWithModTime(path, modTime)
+	f.creationTime[path] = created
+}
+
 func (f *fakeFS) addFile(path string, size int64) {
 	f.infos[path] = fakeFileInfo{name: filepath.Base(path), size: size}
 	parent := filepath.Dir(path)
 	f.dirChildren[parent] = append(f.dirChildren[parent], filepath.Base(path))
 }
 
+func (f *fakeFS) addFileWithModTime(path string, size int64, modTime time.Time) {
+	f.infos[path] = fakeFileInfo{name: filepath.Base(path), size: size, modTime: modTime}
+	parent := filepath.Dir(path)
+	f.dirChildren[parent] = append(f.dirChildren[parent], filepath.Base(path))
+}
+
 func (f *fakeFS) addSymlink(path string, target string) {
 	f.infos[path] = fakeFileInfo{name: filepath.Base(path), mode: fs.ModeSymlink}
+	f.readlinkMap[path] = target
+	parent := filepath.Dir(path)
+	f.dirChildren[parent] = append(f.dirChildren[parent], filepath.Base(path))
+}
+
+func (f *fakeFS) addSymlinkWithModTime(path string, target string, modTime time.Time) {
+	f.infos[path] = fakeFileInfo{name: filepath.Base(path), mode: fs.ModeSymlink, modTime: modTime}
 	f.readlinkMap[path] = target
 	parent := filepath.Dir(path)
 	f.dirChildren[parent] = append(f.dirChildren[parent], filepath.Base(path))
@@ -349,16 +458,22 @@ func (f *fakeFS) Readlink(name string) (string, error) {
 	return target, nil
 }
 
+func (f *fakeFS) CreationTime(name string, _ fs.FileInfo) (time.Time, bool) {
+	created, ok := f.creationTime[name]
+	return created, ok
+}
+
 type fakeFileInfo struct {
-	name string
-	size int64
-	mode fs.FileMode
+	name    string
+	size    int64
+	mode    fs.FileMode
+	modTime time.Time
 }
 
 func (f fakeFileInfo) Name() string       { return f.name }
 func (f fakeFileInfo) Size() int64        { return f.size }
 func (f fakeFileInfo) Mode() fs.FileMode  { return f.mode }
-func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeFileInfo) ModTime() time.Time { return f.modTime }
 func (f fakeFileInfo) IsDir() bool        { return f.mode.IsDir() }
 func (f fakeFileInfo) Sys() interface{}   { return nil }
 

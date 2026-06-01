@@ -15,10 +15,14 @@ It scans directory and ranks its direct files and folders by size.
 ## Usage
 
 ```sh
-big [path]
+big [flags] [path]
 ```
 
 If `path` is omitted, big scans the current directory.
+
+Flags:
+
+- `--age <days>`: minimum root entry age in whole days; `0` includes entries of any age. Positive values use the file modified date and folder creation date.
 
 ⚠️ Large folders can take time to scan. Press `ctrl+c` to stop the scan.
 

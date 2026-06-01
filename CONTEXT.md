@@ -16,6 +16,10 @@ _Avoid_: item, node, result
 The size used to rank a **Root Entry**. For a file it is the file size; for a folder it is the recursive total of readable contained files and folders. Symlinks and junctions do not have an **Entry Size** because Big does not follow them.
 _Avoid_: weight, disk usage
 
+**Root Entry Age**:
+The elapsed whole-day age used to optionally include a **Root Entry** in a scan. Files, symlinks, junctions, and other non-folder entries use modified time; folders use creation time when available and modified time otherwise.
+_Avoid_: item age, stale age
+
 **Size Ranking**:
 The ordering of **Root Entries**: sized entries of at least 1 MiB appear first from largest to smallest **Entry Size**, with entries of the same **Entry Size** ordered by name; sized entries below 1 MiB appear next ordered by name; and entries without an **Entry Size** appear last ordered by name.
 _Avoid_: sorting, order

@@ -8,6 +8,7 @@ import (
 	"big/internal/scan"
 	"big/internal/tui"
 	tea "charm.land/bubbletea/v2"
+	flag "github.com/spf13/pflag"
 )
 
 func main() {
@@ -15,17 +16,23 @@ func main() {
 }
 
 func run(args []string) int {
-	if len(args) > 1 {
-		fmt.Fprintln(os.Stderr, "usage: big [path]")
+	cli, err := parseCLI(args, os.Stdout)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		fmt.Fprintln(os.Stderr, err)
+		printCLIHelp(os.Stderr)
 		return 1
 	}
 
 	root := "."
-	if len(args) == 1 {
-		root = args[0]
+	if len(cli.args) == 1 {
+		root = cli.args[0]
 	}
 
 	scanner := scan.NewScanner(nil)
+	scanner.MinAgeDays = cli.minAgeDays
 	entries, err := scanner.ScanRoot(root)
 	if err != nil {
 		printScanError(err)
