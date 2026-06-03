@@ -39,14 +39,11 @@ Flags:
 
 ## Development
 
-Build the CLI:
-
 ```sh
 go build ./cmd/big
-```
-
-Run all tests:
-
-```sh
 go test ./...
 ```
+
+## Related
+
+- [shed](https://github.com/pongo/shed) — CLI that moves stale root items from a selected folder into ~\Shed. `Go`
