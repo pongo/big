@@ -2,7 +2,7 @@
 
 big is a terminal utility for finding the largest immediate entries inside a folder.
 
-It scans directory and ranks its direct files and folders by size.
+It scans directory and ranks its direct files and folders by size. You can move items to the trash.
 
 > [!IMPORTANT]  
 > Windows-only. I'm sorry. Please write the code for your OS yourself. You might want to take a look at the `_windows.go` files.
