@@ -4,6 +4,9 @@ big is a terminal utility for finding the largest immediate entries inside a fol
 
 It scans directory and ranks its direct files and folders by size.
 
+> [!IMPORTANT]  
+> Windows-only. I'm sorry. Please write the code for your OS yourself. You might want to take a look at the `_windows.go` files.
+
 <img width="500" alt="big" src="https://github.com/user-attachments/assets/d344b1f1-b64f-4773-a6cf-e92328dd8ac3" />
 
 ## Views
