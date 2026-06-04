@@ -47,3 +47,4 @@ go test ./...
 ## Related
 
 - [shed](https://github.com/pongo/shed) — CLI that moves stale root items from a selected folder into ~\Shed. `Go`
+- If you need a more detailed scan, try ncdu or TreeSize.
